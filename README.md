@@ -185,3 +185,34 @@ Si la pantalla no ocupa bien la imagen, se puede ayudar con un recorte aproximad
 ```bash
 python main_rx_video_sequence.py --camera 0 --ecc 16 --crop 80,40,1100,700
 ```
+
+## Parte 9
+
+Herramientas de optimizacion y medicion:
+
+- Estimacion de frames necesarios.
+- Tiempo total esperado.
+- Tasa util estimada.
+- Muestras de camara esperadas por frame.
+- BER entre mensaje esperado y recibido.
+
+Analizar la configuracion objetivo de 500 caracteres:
+
+```bash
+python main_analyze_performance.py --message-file mensaje.txt --ecc 16 --duration-ms 150 --repeat 1
+```
+
+Tambien se puede probar directamente con 500 caracteres:
+
+```bash
+python main_analyze_performance.py --message "AAAAAAAAAA..." --ecc 16
+```
+
+Para medir BER al decodificar una secuencia offline:
+
+```bash
+python main_rx_sequence_offline.py --input-dir data/generated/sequence --ecc 16 --expected-file mensaje.txt
+```
+
+Con la configuracion actual, un mensaje de 500 bytes con `--ecc 16` requiere 10 frames. A 150 ms por frame,
+la transmision estimada dura 1.50 s por repeticion completa; dos repeticiones duran 3.00 s.

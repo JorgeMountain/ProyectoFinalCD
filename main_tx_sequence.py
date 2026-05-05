@@ -1,6 +1,7 @@
 import argparse
 
 from transmitter.sequence import display_frame_sequence, generate_frame_sequence
+from common.performance import plan_transmission
 
 
 def main() -> None:
@@ -24,6 +25,12 @@ def main() -> None:
         output_dir=args.output_dir,
         error_correction_bytes=args.ecc,
     )
+    plan = plan_transmission(
+        message,
+        error_correction_bytes=args.ecc,
+        frame_duration_ms=args.duration_ms,
+        repeat=args.repeat,
+    )
 
     print(f"Frames generados: {len(result.frame_paths)}")
     print(f"Carpeta: {result.output_dir}")
@@ -31,6 +38,9 @@ def main() -> None:
     print(f"Bytes transmitidos: {result.transmitted_bytes}")
     print(f"Bytes utiles por frame: {result.packet_payload_capacity}")
     print(f"Bytes Reed-Solomon: {result.error_correction_bytes}")
+    print(f"Tiempo estimado al mostrar: {plan.estimated_seconds:.2f} s")
+    print(f"Tasa util estimada: {plan.throughput_bps:.1f} bps")
+    print(f"Muestras de camara por frame: {plan.camera_samples_per_frame:.2f}")
 
     if args.show:
         display_frame_sequence(result.frame_paths, frame_duration_ms=args.duration_ms, repeat=args.repeat)
@@ -38,4 +48,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
