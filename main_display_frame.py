@@ -10,11 +10,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Muestra el frame transmisor en pantalla completa.")
     parser.add_argument("--message", default="Hola mundo", help="Mensaje a codificar si se debe generar el frame.")
     parser.add_argument("--image", default="data/generated/frame_test.png", help="Imagen del frame transmisor.")
+    parser.add_argument("--ecc", type=int, default=0, help="Bytes de paridad Reed-Solomon si genera el frame.")
     args = parser.parse_args()
 
     image_path = Path(args.image)
     if not image_path.exists():
-        generate_static_frame(args.message, output_path=image_path)
+        generate_static_frame(args.message, output_path=image_path, error_correction_bytes=args.ecc)
 
     image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
     if image is None:
@@ -35,4 +36,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -64,6 +64,7 @@ def decode_photo_frame(
     crop: Crop | None = None,
     threshold: float | None = None,
     auto_perspective: bool = False,
+    error_correction_bytes: int = 0,
 ) -> DecodedFrame:
     """Decode a real photo or screenshot after optional manual cropping."""
     pixels = load_photo_pixels(
@@ -72,4 +73,9 @@ def decode_photo_frame(
         crop=crop,
         auto_perspective=auto_perspective,
     )
-    return decode_static_pixels(pixels, config=config, threshold=threshold)
+    return decode_static_pixels(
+        pixels,
+        config=config,
+        threshold=threshold,
+        error_correction_bytes=error_correction_bytes,
+    )

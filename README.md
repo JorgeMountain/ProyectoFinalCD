@@ -124,3 +124,24 @@ Si la foto tiene mucho fondo, se puede combinar un recorte aproximado con la det
 ```bash
 python main_rx_photo.py data/captures/capture.jpg --crop 80,40,1100,700 --auto-perspective
 ```
+
+## Parte 7
+
+El transmisor y receptor soportan correccion de errores Reed-Solomon sobre los bytes del mensaje.
+Se activa indicando cuantos bytes de paridad se agregan. Con `--ecc 16`, el sistema puede corregir
+hasta 8 bytes danados dentro del payload codificado del frame.
+
+Generar y decodificar un frame con correccion de errores:
+
+```bash
+python main_tx_static.py --ecc 16
+python main_rx_offline.py --ecc 16
+```
+
+Para foto real:
+
+```bash
+python main_rx_photo.py data/captures/capture.jpg --auto-perspective --ecc 16
+```
+
+El valor de `--ecc` debe ser el mismo en transmisor y receptor.

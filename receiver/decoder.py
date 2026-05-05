@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from common.bit_utils import bits_to_text, remove_length_prefix
+from common.bit_utils import bits_to_bytes, bits_to_text, remove_length_prefix
+from common.ecc import decode_reed_solomon
 from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
 from common.frame_layout import data_cells
 from common.modulation import ook_demodulate
@@ -22,6 +23,8 @@ class DecodedFrame:
     payload_bits: int
     average_levels: list[float]
     calibration: OokCalibration
+    error_correction_bytes: int
+    corrected_symbols: int
 
 
 def decode_static_frame(
@@ -29,6 +32,7 @@ def decode_static_frame(
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
     threshold: float | None = None,
     length_prefix_width: int = 16,
+    error_correction_bytes: int = 0,
 ) -> DecodedFrame:
     """Decode a PNG static frame back into text."""
     pixels = read_grayscale_png(image_path)
@@ -37,6 +41,7 @@ def decode_static_frame(
         config=config,
         threshold=threshold,
         length_prefix_width=length_prefix_width,
+        error_correction_bytes=error_correction_bytes,
     )
 
 
@@ -45,6 +50,7 @@ def decode_static_pixels(
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
     threshold: float | None = None,
     length_prefix_width: int = 16,
+    error_correction_bytes: int = 0,
 ) -> DecodedFrame:
     """Decode a rectified grayscale frame already loaded in memory."""
     grid_levels = sample_grid_levels(pixels, config)
@@ -55,15 +61,28 @@ def decode_static_pixels(
 
     data_levels = [grid_levels[row][col] for row, col in data_cells(config)]
     raw_bits = ook_demodulate(data_levels, threshold=decision_threshold)
-    payload_bits = remove_length_prefix(raw_bits, width=length_prefix_width)
-    message = bits_to_text(payload_bits)
+    transport_bits = remove_length_prefix(raw_bits, width=length_prefix_width)
+    corrected_symbols = 0
+    if error_correction_bytes > 0:
+        encoded_payload = bits_to_bytes(transport_bits)
+        decoded = decode_reed_solomon(encoded_payload, error_correction_bytes)
+        payload_bits = []
+        message = decoded.payload.decode("utf-8")
+        corrected_symbols = decoded.corrected_symbols
+        payload_bit_count = len(decoded.payload) * 8
+    else:
+        payload_bits = transport_bits
+        message = bits_to_text(payload_bits)
+        payload_bit_count = len(payload_bits)
 
     return DecodedFrame(
         message=message,
-        transmitted_bits=length_prefix_width + len(payload_bits),
-        payload_bits=len(payload_bits),
+        transmitted_bits=length_prefix_width + len(transport_bits),
+        payload_bits=payload_bit_count,
         average_levels=data_levels,
         calibration=calibration,
+        error_correction_bytes=error_correction_bytes,
+        corrected_symbols=corrected_symbols,
     )
 
 

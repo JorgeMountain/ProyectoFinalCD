@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from common.bit_utils import add_length_prefix, text_to_bits
+from common.bit_utils import add_length_prefix, bytes_to_bits
+from common.ecc import encode_reed_solomon
 from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
 from common.frame_layout import (
     data_cells,
@@ -30,12 +31,19 @@ class GeneratedFrame:
     payload_bits: int
     transmitted_bits: int
     data_capacity_bits: int
+    error_correction_bytes: int
 
 
-def message_to_frame_bits(message: str, length_prefix_width: int = 16) -> list[int]:
+def message_to_frame_bits(
+    message: str,
+    length_prefix_width: int = 16,
+    error_correction_bytes: int = 0,
+) -> list[int]:
     """Convert a message into length-prefixed payload bits."""
-    payload = text_to_bits(message)
-    return add_length_prefix(payload, width=length_prefix_width)
+    payload = message.encode("utf-8")
+    if error_correction_bytes > 0:
+        payload = encode_reed_solomon(payload, error_correction_bytes)
+    return add_length_prefix(bytes_to_bits(payload), width=length_prefix_width)
 
 
 def build_frame_grid(bits: list[int], config: FrameConfig = DEFAULT_FRAME_CONFIG) -> list[list[int]]:
@@ -66,9 +74,10 @@ def generate_static_frame(
     message: str,
     output_path: str | Path = "data/generated/frame_test.png",
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
+    error_correction_bytes: int = 0,
 ) -> GeneratedFrame:
     """Generate and save one PNG frame containing the message."""
-    frame_bits = message_to_frame_bits(message)
+    frame_bits = message_to_frame_bits(message, error_correction_bytes=error_correction_bytes)
     grid = build_frame_grid(frame_bits, config)
     pixels = render_grid_to_pixels(grid, config)
     path = Path(output_path)
@@ -76,9 +85,10 @@ def generate_static_frame(
 
     return GeneratedFrame(
         output_path=path,
-        payload_bits=len(text_to_bits(message)),
+        payload_bits=len(message.encode("utf-8")) * 8,
         transmitted_bits=len(frame_bits),
         data_capacity_bits=len(data_cells(config)),
+        error_correction_bytes=error_correction_bytes,
     )
 
 

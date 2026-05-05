@@ -21,6 +21,7 @@ def main() -> None:
         action="store_true",
         help="Detecta los marcadores y corrige perspectiva antes de decodificar.",
     )
+    parser.add_argument("--ecc", type=int, default=0, help="Bytes de paridad Reed-Solomon usados.")
     args = parser.parse_args()
 
     result = decode_photo_frame(
@@ -28,11 +29,14 @@ def main() -> None:
         crop=parse_crop(args.crop),
         threshold=args.threshold,
         auto_perspective=args.auto_perspective,
+        error_correction_bytes=args.ecc,
     )
 
     print(f"Mensaje decodificado: {result.message}")
     print(f"Bits del mensaje: {result.payload_bits}")
     print(f"Bits leidos con prefijo: {result.transmitted_bits}")
+    print(f"Bytes Reed-Solomon: {result.error_correction_bytes}")
+    print(f"Simbolos corregidos: {result.corrected_symbols}")
     print(f"Umbral adaptativo: {result.calibration.threshold:.2f}")
     print(f"Marcadores validos: {result.calibration.markers_valid}")
 
