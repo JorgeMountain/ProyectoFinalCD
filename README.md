@@ -33,3 +33,19 @@ data/generated/frame_test.png
 ```
 
 La imagen generada se ignora en Git porque es un artefacto reproducible.
+
+## Parte 3
+
+El receptor offline lee el PNG generado, promedia cada celda de la grilla,
+demodula OOK y reconstruye el texto original.
+
+```bash
+python main_tx_static.py
+python main_rx_offline.py
+```
+
+Salida esperada:
+
+```text
+Mensaje decodificado: Hola mundo
+```
