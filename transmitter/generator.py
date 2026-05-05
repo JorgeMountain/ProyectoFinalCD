@@ -1,0 +1,113 @@
+"""Static frame generator for the optical modem transmitter."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from common.bit_utils import add_length_prefix, text_to_bits
+from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
+from common.frame_layout import data_cells, marker_cells, pilot_cells, require_capacity
+from common.modulation import ook_modulate
+from common.png_writer import write_grayscale_png
+
+
+BACKGROUND_LEVEL = 24
+UNUSED_DATA_LEVEL = 64
+
+
+@dataclass(frozen=True)
+class GeneratedFrame:
+    """Metadata returned after creating a static transmitter frame."""
+
+    output_path: Path
+    payload_bits: int
+    transmitted_bits: int
+    data_capacity_bits: int
+
+
+def message_to_frame_bits(message: str, length_prefix_width: int = 16) -> list[int]:
+    """Convert a message into length-prefixed payload bits."""
+    payload = text_to_bits(message)
+    return add_length_prefix(payload, width=length_prefix_width)
+
+
+def build_frame_grid(bits: list[int], config: FrameConfig = DEFAULT_FRAME_CONFIG) -> list[list[int]]:
+    """Build a grid of grayscale levels for one visual frame."""
+    checked_bits = require_capacity(bits, config)
+    grid = [[BACKGROUND_LEVEL for _ in range(config.grid_cols)] for _ in range(config.grid_rows)]
+
+    _place_markers(grid, config)
+    _place_pilots(grid, config)
+    _place_data(grid, checked_bits, config)
+
+    return grid
+
+
+def render_grid_to_pixels(grid: list[list[int]], config: FrameConfig) -> list[list[int]]:
+    """Scale a cell-level grid into image pixels."""
+    pixels: list[list[int]] = []
+    for grid_row in grid:
+        pixel_row: list[int] = []
+        for level in grid_row:
+            pixel_row.extend([level] * config.cell_width)
+        for _ in range(config.cell_height):
+            pixels.append(list(pixel_row))
+    return pixels
+
+
+def generate_static_frame(
+    message: str,
+    output_path: str | Path = "data/generated/frame_test.png",
+    config: FrameConfig = DEFAULT_FRAME_CONFIG,
+) -> GeneratedFrame:
+    """Generate and save one PNG frame containing the message."""
+    frame_bits = message_to_frame_bits(message)
+    grid = build_frame_grid(frame_bits, config)
+    pixels = render_grid_to_pixels(grid, config)
+    path = Path(output_path)
+    write_grayscale_png(path, pixels)
+
+    return GeneratedFrame(
+        output_path=path,
+        payload_bits=len(text_to_bits(message)),
+        transmitted_bits=len(frame_bits),
+        data_capacity_bits=len(data_cells(config)),
+    )
+
+
+def _place_markers(grid: list[list[int]], config: FrameConfig) -> None:
+    marker_size = config.marker_cells
+    origins = (
+        (0, 0),
+        (0, config.grid_cols - marker_size),
+        (config.grid_rows - marker_size, 0),
+        (config.grid_rows - marker_size, config.grid_cols - marker_size),
+    )
+
+    for row_start, col_start in origins:
+        for row_offset in range(marker_size):
+            for col_offset in range(marker_size):
+                row = row_start + row_offset
+                col = col_start + col_offset
+                is_center = row_offset == marker_size // 2 and col_offset == marker_size // 2
+                grid[row][col] = 0 if is_center else 255
+
+
+def _place_pilots(grid: list[list[int]], config: FrameConfig) -> None:
+    for index, (row, col) in enumerate(pilot_cells(config)):
+        grid[row][col] = 255 if index % 2 == 0 else 0
+
+
+def _place_data(grid: list[list[int]], bits: list[int], config: FrameConfig) -> None:
+    symbols = ook_modulate(bits)
+    cells = data_cells(config)
+
+    for index, (row, col) in enumerate(cells):
+        grid[row][col] = symbols[index] if index < len(symbols) else UNUSED_DATA_LEVEL
+
+
+def used_reserved_cells(config: FrameConfig = DEFAULT_FRAME_CONFIG) -> set[tuple[int, int]]:
+    """Expose reserved cells for tests and later receiver work."""
+    return marker_cells(config) | set(pilot_cells(config))
+

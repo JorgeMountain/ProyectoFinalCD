@@ -18,3 +18,18 @@ python -m unittest discover -s tests
 python main_part1.py
 ```
 
+## Parte 2
+
+El transmisor estatico genera una imagen PNG con una grilla visual codificada en OOK.
+
+```bash
+python main_tx_static.py
+```
+
+Salida generada:
+
+```text
+data/generated/frame_test.png
+```
+
+La imagen generada se ignora en Git porque es un artefacto reproducible.
