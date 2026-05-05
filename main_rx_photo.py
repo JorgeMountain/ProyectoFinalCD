@@ -16,9 +16,19 @@ def main() -> None:
         default=None,
         help="Umbral manual opcional. Si se omite, usa pilotos.",
     )
+    parser.add_argument(
+        "--auto-perspective",
+        action="store_true",
+        help="Detecta los marcadores y corrige perspectiva antes de decodificar.",
+    )
     args = parser.parse_args()
 
-    result = decode_photo_frame(args.image, crop=parse_crop(args.crop), threshold=args.threshold)
+    result = decode_photo_frame(
+        args.image,
+        crop=parse_crop(args.crop),
+        threshold=args.threshold,
+        auto_perspective=args.auto_perspective,
+    )
 
     print(f"Mensaje decodificado: {result.message}")
     print(f"Bits del mensaje: {result.payload_bits}")
@@ -29,4 +39,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

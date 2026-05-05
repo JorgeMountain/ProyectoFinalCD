@@ -8,6 +8,7 @@ import cv2
 
 from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
 from receiver.decoder import DecodedFrame, decode_static_pixels
+from receiver.perspective import rectify_frame_image
 
 
 Crop = tuple[int, int, int, int]
@@ -32,8 +33,9 @@ def load_photo_pixels(
     image_path: str | Path,
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
     crop: Crop | None = None,
+    auto_perspective: bool = False,
 ) -> list[list[int]]:
-    """Load a photo, optionally crop it, and resize it to the receiver grid size."""
+    """Load a photo, optionally crop/rectify it, and resize it to frame size."""
     image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
     if image is None:
         raise ValueError(f"Could not read image: {image_path}")
@@ -43,6 +45,9 @@ def load_photo_pixels(
         if x + width > image.shape[1] or y + height > image.shape[0]:
             raise ValueError("Crop rectangle is outside the image bounds")
         image = image[y : y + height, x : x + width]
+
+    if auto_perspective:
+        return rectify_frame_image(image, config=config).image.astype("uint8").tolist()
 
     interpolation = cv2.INTER_AREA if image.shape[1] >= config.image_width else cv2.INTER_LINEAR
     resized = cv2.resize(
@@ -58,8 +63,13 @@ def decode_photo_frame(
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
     crop: Crop | None = None,
     threshold: float | None = None,
+    auto_perspective: bool = False,
 ) -> DecodedFrame:
     """Decode a real photo or screenshot after optional manual cropping."""
-    pixels = load_photo_pixels(image_path, config=config, crop=crop)
+    pixels = load_photo_pixels(
+        image_path,
+        config=config,
+        crop=crop,
+        auto_perspective=auto_perspective,
+    )
     return decode_static_pixels(pixels, config=config, threshold=threshold)
-

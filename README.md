@@ -101,3 +101,26 @@ python main_rx_photo.py data/captures/capture.jpg --crop 120,80,900,520
 ```
 
 En esta parte el recorte todavia es manual. La deteccion automatica de pantalla y correccion de perspectiva quedan para la Parte 6.
+
+## Parte 6
+
+El receptor puede detectar automaticamente los marcadores de esquina, estimar la homografia y rectificar
+la foto antes de decodificar.
+
+Decodificar con correccion automatica de perspectiva:
+
+```bash
+python main_rx_photo.py data/captures/capture.jpg --auto-perspective
+```
+
+Guardar una imagen rectificada para inspeccion visual:
+
+```bash
+python main_rectify_photo.py data/captures/capture.jpg --output data/captures/rectified.png
+```
+
+Si la foto tiene mucho fondo, se puede combinar un recorte aproximado con la deteccion automatica:
+
+```bash
+python main_rx_photo.py data/captures/capture.jpg --crop 80,40,1100,700 --auto-perspective
+```
