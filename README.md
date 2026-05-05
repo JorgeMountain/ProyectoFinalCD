@@ -49,3 +49,13 @@ Salida esperada:
 ```text
 Mensaje decodificado: Hola mundo
 ```
+
+## Parte 4
+
+El frame ahora tiene referencias explicitas para operar con fotos reales mas adelante:
+
+- Marcadores en las cuatro esquinas para validar orientacion y preparar la deteccion de pantalla.
+- Pilotos alternados blanco/negro para estimar el umbral de decision.
+- Receptor offline con umbral adaptativo basado en pilotos.
+
+Esto permite decodificar correctamente aunque la imagen tenga cambios simples de brillo y contraste.

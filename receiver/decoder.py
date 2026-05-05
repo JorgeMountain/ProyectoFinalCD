@@ -10,6 +10,7 @@ from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
 from common.frame_layout import data_cells
 from common.modulation import ook_demodulate
 from common.png_reader import read_grayscale_png
+from receiver.calibration import OokCalibration, estimate_ook_calibration
 
 
 @dataclass(frozen=True)
@@ -20,19 +21,25 @@ class DecodedFrame:
     transmitted_bits: int
     payload_bits: int
     average_levels: list[float]
+    calibration: OokCalibration
 
 
 def decode_static_frame(
     image_path: str | Path = "data/generated/frame_test.png",
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
-    threshold: float = 127.5,
+    threshold: float | None = None,
     length_prefix_width: int = 16,
 ) -> DecodedFrame:
     """Decode a PNG static frame back into text."""
     pixels = read_grayscale_png(image_path)
     grid_levels = sample_grid_levels(pixels, config)
+    calibration = estimate_ook_calibration(grid_levels, config)
+    decision_threshold = calibration.threshold if threshold is None else threshold
+    if not calibration.markers_valid:
+        raise ValueError("Frame finder markers do not match the expected pattern")
+
     data_levels = [grid_levels[row][col] for row, col in data_cells(config)]
-    raw_bits = ook_demodulate(data_levels, threshold=threshold)
+    raw_bits = ook_demodulate(data_levels, threshold=decision_threshold)
     payload_bits = remove_length_prefix(raw_bits, width=length_prefix_width)
     message = bits_to_text(payload_bits)
 
@@ -41,6 +48,7 @@ def decode_static_frame(
         transmitted_bits=length_prefix_width + len(payload_bits),
         payload_bits=len(payload_bits),
         average_levels=data_levels,
+        calibration=calibration,
     )
 
 
@@ -82,4 +90,3 @@ def _validate_dimensions(pixels: list[list[int]], config: FrameConfig) -> None:
     for row in pixels:
         if len(row) != width:
             raise ValueError("Image rows have inconsistent widths")
-

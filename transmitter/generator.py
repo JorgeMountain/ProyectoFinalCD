@@ -7,7 +7,13 @@ from pathlib import Path
 
 from common.bit_utils import add_length_prefix, text_to_bits
 from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
-from common.frame_layout import data_cells, marker_cells, pilot_cells, require_capacity
+from common.frame_layout import (
+    data_cells,
+    marker_cells,
+    marker_origins,
+    pilot_cells_with_bits,
+    require_capacity,
+)
 from common.modulation import ook_modulate
 from common.png_writer import write_grayscale_png
 
@@ -78,14 +84,8 @@ def generate_static_frame(
 
 def _place_markers(grid: list[list[int]], config: FrameConfig) -> None:
     marker_size = config.marker_cells
-    origins = (
-        (0, 0),
-        (0, config.grid_cols - marker_size),
-        (config.grid_rows - marker_size, 0),
-        (config.grid_rows - marker_size, config.grid_cols - marker_size),
-    )
 
-    for row_start, col_start in origins:
+    for row_start, col_start in marker_origins(config):
         for row_offset in range(marker_size):
             for col_offset in range(marker_size):
                 row = row_start + row_offset
@@ -95,8 +95,8 @@ def _place_markers(grid: list[list[int]], config: FrameConfig) -> None:
 
 
 def _place_pilots(grid: list[list[int]], config: FrameConfig) -> None:
-    for index, (row, col) in enumerate(pilot_cells(config)):
-        grid[row][col] = 255 if index % 2 == 0 else 0
+    for (row, col), expected_bit in pilot_cells_with_bits(config):
+        grid[row][col] = 255 if expected_bit == 1 else 0
 
 
 def _place_data(grid: list[list[int]], bits: list[int], config: FrameConfig) -> None:
@@ -110,4 +110,3 @@ def _place_data(grid: list[list[int]], bits: list[int], config: FrameConfig) -> 
 def used_reserved_cells(config: FrameConfig = DEFAULT_FRAME_CONFIG) -> set[tuple[int, int]]:
     """Expose reserved cells for tests and later receiver work."""
     return marker_cells(config) | set(pilot_cells(config))
-

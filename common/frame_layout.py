@@ -10,18 +10,23 @@ from common.frame_config import FrameConfig
 Cell = tuple[int, int]
 
 
-def marker_cells(config: FrameConfig) -> set[Cell]:
-    """Return cells reserved for four corner finder markers."""
-    reserved: set[Cell] = set()
+def marker_origins(config: FrameConfig) -> tuple[Cell, Cell, Cell, Cell]:
+    """Return top-left origins for the four corner finder markers."""
     marker_size = config.marker_cells
-    corner_origins = (
+    return (
         (0, 0),
         (0, config.grid_cols - marker_size),
         (config.grid_rows - marker_size, 0),
         (config.grid_rows - marker_size, config.grid_cols - marker_size),
     )
 
-    for row_start, col_start in corner_origins:
+
+def marker_cells(config: FrameConfig) -> set[Cell]:
+    """Return cells reserved for four corner finder markers."""
+    reserved: set[Cell] = set()
+    marker_size = config.marker_cells
+
+    for row_start, col_start in marker_origins(config):
         for row in range(row_start, row_start + marker_size):
             for col in range(col_start, col_start + marker_size):
                 reserved.add((row, col))
@@ -45,6 +50,11 @@ def pilot_cells(config: FrameConfig) -> list[Cell]:
     return pilots
 
 
+def pilot_cells_with_bits(config: FrameConfig) -> list[tuple[Cell, int]]:
+    """Return pilot cells paired with their expected OOK bit value."""
+    return [(cell, 1 if index % 2 == 0 else 0) for index, cell in enumerate(pilot_cells(config))]
+
+
 def data_cells(config: FrameConfig) -> list[Cell]:
     """Return cells available for payload data."""
     reserved = marker_cells(config) | set(pilot_cells(config))
@@ -65,4 +75,3 @@ def require_capacity(bits: Iterable[int], config: FrameConfig) -> list[int]:
     if len(bit_list) > capacity:
         raise ValueError(f"Payload needs {len(bit_list)} cells but frame capacity is {capacity}")
     return bit_list
-
