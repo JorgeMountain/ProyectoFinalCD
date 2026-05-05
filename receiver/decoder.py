@@ -15,6 +15,15 @@ from receiver.calibration import OokCalibration, estimate_ook_calibration
 
 
 @dataclass(frozen=True)
+class DecodedDataBits:
+    """Raw data bits and calibration details from one rectified frame."""
+
+    bits: list[int]
+    average_levels: list[float]
+    calibration: OokCalibration
+
+
+@dataclass(frozen=True)
 class DecodedFrame:
     """Metadata returned after decoding a static frame."""
 
@@ -53,14 +62,8 @@ def decode_static_pixels(
     error_correction_bytes: int = 0,
 ) -> DecodedFrame:
     """Decode a rectified grayscale frame already loaded in memory."""
-    grid_levels = sample_grid_levels(pixels, config)
-    calibration = estimate_ook_calibration(grid_levels, config)
-    decision_threshold = calibration.threshold if threshold is None else threshold
-    if not calibration.markers_valid:
-        raise ValueError("Frame finder markers do not match the expected pattern")
-
-    data_levels = [grid_levels[row][col] for row, col in data_cells(config)]
-    raw_bits = ook_demodulate(data_levels, threshold=decision_threshold)
+    decoded_bits = decode_data_bits(pixels, config=config, threshold=threshold)
+    raw_bits = decoded_bits.bits
     transport_bits = remove_length_prefix(raw_bits, width=length_prefix_width)
     corrected_symbols = 0
     if error_correction_bytes > 0:
@@ -79,11 +82,28 @@ def decode_static_pixels(
         message=message,
         transmitted_bits=length_prefix_width + len(transport_bits),
         payload_bits=payload_bit_count,
-        average_levels=data_levels,
-        calibration=calibration,
+        average_levels=decoded_bits.average_levels,
+        calibration=decoded_bits.calibration,
         error_correction_bytes=error_correction_bytes,
         corrected_symbols=corrected_symbols,
     )
+
+
+def decode_data_bits(
+    pixels: list[list[int]],
+    config: FrameConfig = DEFAULT_FRAME_CONFIG,
+    threshold: float | None = None,
+) -> DecodedDataBits:
+    """Decode all data-cell bits from a rectified frame."""
+    grid_levels = sample_grid_levels(pixels, config)
+    calibration = estimate_ook_calibration(grid_levels, config)
+    decision_threshold = calibration.threshold if threshold is None else threshold
+    if not calibration.markers_valid:
+        raise ValueError("Frame finder markers do not match the expected pattern")
+
+    data_levels = [grid_levels[row][col] for row, col in data_cells(config)]
+    raw_bits = ook_demodulate(data_levels, threshold=decision_threshold)
+    return DecodedDataBits(bits=raw_bits, average_levels=data_levels, calibration=calibration)
 
 
 def sample_grid_levels(pixels: list[list[int]], config: FrameConfig) -> list[list[float]]:

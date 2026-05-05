@@ -145,3 +145,43 @@ python main_rx_photo.py data/captures/capture.jpg --auto-perspective --ecc 16
 ```
 
 El valor de `--ecc` debe ser el mismo en transmisor y receptor.
+
+## Parte 8
+
+El sistema soporta mensajes multi-frame. El mensaje se divide en paquetes con:
+
+- Identificador de protocolo.
+- Numero de secuencia.
+- Total de paquetes.
+- Longitud del payload del frame.
+- Delimitador de fin.
+
+Generar una secuencia de frames:
+
+```bash
+python main_tx_sequence.py --message "Hola mundo largo" --output-dir data/generated/sequence --ecc 16
+```
+
+Decodificar la secuencia generada:
+
+```bash
+python main_rx_sequence_offline.py --input-dir data/generated/sequence --ecc 16
+```
+
+Mostrar la transmision en pantalla completa:
+
+```bash
+python main_tx_sequence.py --message-file mensaje.txt --ecc 16 --show --duration-ms 150 --repeat 2
+```
+
+Recibir desde webcam:
+
+```bash
+python main_rx_video_sequence.py --camera 0 --ecc 16
+```
+
+Si la pantalla no ocupa bien la imagen, se puede ayudar con un recorte aproximado:
+
+```bash
+python main_rx_video_sequence.py --camera 0 --ecc 16 --crop 80,40,1100,700
+```
