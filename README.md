@@ -59,3 +59,45 @@ El frame ahora tiene referencias explicitas para operar con fotos reales mas ade
 - Receptor offline con umbral adaptativo basado en pilotos.
 
 Esto permite decodificar correctamente aunque la imagen tenga cambios simples de brillo y contraste.
+
+## Parte 5
+
+Flujo con foto real de la pantalla:
+
+1. Generar el frame.
+
+```bash
+python main_tx_static.py
+```
+
+2. Mostrarlo en pantalla completa.
+
+```bash
+python main_display_frame.py
+```
+
+3. Capturar una foto con la webcam del receptor.
+
+```bash
+python main_capture_photo.py --output data/captures/capture.jpg
+```
+
+4. Decodificar la foto.
+
+```bash
+python main_rx_photo.py data/captures/capture.jpg
+```
+
+Si la pantalla ocupa solo una parte de la foto, usar recorte manual:
+
+```bash
+python main_rx_photo.py data/captures/capture.jpg --crop x,y,width,height
+```
+
+Ejemplo:
+
+```bash
+python main_rx_photo.py data/captures/capture.jpg --crop 120,80,900,520
+```
+
+En esta parte el recorte todavia es manual. La deteccion automatica de pantalla y correccion de perspectiva quedan para la Parte 6.

@@ -32,6 +32,21 @@ def decode_static_frame(
 ) -> DecodedFrame:
     """Decode a PNG static frame back into text."""
     pixels = read_grayscale_png(image_path)
+    return decode_static_pixels(
+        pixels,
+        config=config,
+        threshold=threshold,
+        length_prefix_width=length_prefix_width,
+    )
+
+
+def decode_static_pixels(
+    pixels: list[list[int]],
+    config: FrameConfig = DEFAULT_FRAME_CONFIG,
+    threshold: float | None = None,
+    length_prefix_width: int = 16,
+) -> DecodedFrame:
+    """Decode a rectified grayscale frame already loaded in memory."""
     grid_levels = sample_grid_levels(pixels, config)
     calibration = estimate_ook_calibration(grid_levels, config)
     decision_threshold = calibration.threshold if threshold is None else threshold
