@@ -11,6 +11,11 @@ def main() -> None:
     parser.add_argument("--output-dir", default="data/generated/sequence", help="Carpeta de frames PNG.")
     parser.add_argument("--ecc", type=int, default=0, help="Bytes de paridad Reed-Solomon.")
     parser.add_argument("--show", action="store_true", help="Muestra los frames en pantalla completa.")
+    parser.add_argument("--windowed", action="store_true", help="Muestra los frames en una ventana en vez de pantalla completa.")
+    parser.add_argument("--window-width", type=int, default=960, help="Ancho de la ventana si usas --windowed.")
+    parser.add_argument("--window-height", type=int, default=540, help="Alto de la ventana si usas --windowed.")
+    parser.add_argument("--window-x", type=int, help="Posicion X de la ventana si usas --windowed.")
+    parser.add_argument("--window-y", type=int, help="Posicion Y de la ventana si usas --windowed.")
     parser.add_argument("--duration-ms", type=int, default=150, help="Duracion de cada frame al mostrar.")
     parser.add_argument("--repeat", type=int, default=1, help="Repeticiones de la secuencia al mostrar.")
     args = parser.parse_args()
@@ -43,7 +48,14 @@ def main() -> None:
     print(f"Muestras de camara por frame: {plan.camera_samples_per_frame:.2f}")
 
     if args.show:
-        display_frame_sequence(result.frame_paths, frame_duration_ms=args.duration_ms, repeat=args.repeat)
+        display_frame_sequence(
+            result.frame_paths,
+            frame_duration_ms=args.duration_ms,
+            repeat=args.repeat,
+            fullscreen=not args.windowed,
+            window_size=(args.window_width, args.window_height),
+            window_position=(args.window_x, args.window_y) if args.window_x is not None and args.window_y is not None else None,
+        )
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from pathlib import Path
 import cv2
 
 from transmitter.generator import generate_static_frame
+from transmitter.sequence import colorize_corner_markers
 
 
 def main() -> None:
@@ -23,7 +24,7 @@ def main() -> None:
 
     cv2.namedWindow("Transmisor", cv2.WINDOW_NORMAL)
     cv2.setWindowProperty("Transmisor", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-    cv2.imshow("Transmisor", image)
+    cv2.imshow("Transmisor", colorize_corner_markers(image))
     print("Frame en pantalla completa. Presiona q o ESC para cerrar.")
 
     while True:
