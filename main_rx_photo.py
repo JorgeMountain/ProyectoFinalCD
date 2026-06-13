@@ -1,5 +1,7 @@
 import argparse
 
+from common.modulation import MODULATION_CHOICES
+from receiver.calibration import Ask4Calibration
 from receiver.photo_decoder import decode_photo_frame, parse_crop
 
 
@@ -22,6 +24,7 @@ def main() -> None:
         help="Detecta los marcadores y corrige perspectiva antes de decodificar.",
     )
     parser.add_argument("--ecc", type=int, default=0, help="Bytes de paridad Reed-Solomon usados.")
+    parser.add_argument("--modulation", choices=MODULATION_CHOICES, default="ook", help="Esquema de modulacion visual.")
     args = parser.parse_args()
 
     result = decode_photo_frame(
@@ -30,6 +33,7 @@ def main() -> None:
         threshold=args.threshold,
         auto_perspective=args.auto_perspective,
         error_correction_bytes=args.ecc,
+        modulation=args.modulation,
     )
 
     print(f"Mensaje decodificado: {result.message}")
@@ -37,7 +41,11 @@ def main() -> None:
     print(f"Bits leidos con prefijo: {result.transmitted_bits}")
     print(f"Bytes Reed-Solomon: {result.error_correction_bytes}")
     print(f"Simbolos corregidos: {result.corrected_symbols}")
-    print(f"Umbral adaptativo: {result.calibration.threshold:.2f}")
+    print(f"Modulacion: {result.modulation}")
+    if isinstance(result.calibration, Ask4Calibration):
+        print("Niveles 4-ASK calibrados: " + ", ".join(f"{level:.2f}" for level in result.calibration.levels))
+    else:
+        print(f"Umbral adaptativo: {result.calibration.threshold:.2f}")
     print(f"Marcadores validos: {result.calibration.markers_valid}")
 
 

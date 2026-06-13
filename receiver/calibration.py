@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
-from common.frame_layout import marker_origins, pilot_cells_with_bits
+from common.frame_layout import marker_origins, pilot_cells_with_bits, pilot_cells_with_symbols
 
 
 @dataclass(frozen=True)
@@ -15,6 +15,16 @@ class OokCalibration:
     threshold: float
     black_level: float
     white_level: float
+    contrast: float
+    markers_valid: bool
+
+
+@dataclass(frozen=True)
+class Ask4Calibration:
+    """Four calibrated decision centers estimated from known pilot cells."""
+
+    levels: tuple[float, float, float, float]
+    thresholds: tuple[float, float, float]
     contrast: float
     markers_valid: bool
 
@@ -49,6 +59,32 @@ def estimate_ook_calibration(
     )
 
 
+def estimate_ask4_calibration(
+    grid_levels: list[list[float]],
+    config: FrameConfig = DEFAULT_FRAME_CONFIG,
+) -> Ask4Calibration:
+    """Estimate four 4-ASK decision centers from known pilot cells."""
+    samples: list[list[float]] = [[], [], [], []]
+    for (row, col), symbol in pilot_cells_with_symbols(config, modulation="4ask"):
+        samples[symbol].append(grid_levels[row][col])
+
+    if any(not level_samples for level_samples in samples):
+        raise ValueError("At least one pilot cell is required for every 4-ASK level")
+
+    levels = tuple(sum(values) / len(values) for values in samples)
+    if any(levels[index] >= levels[index + 1] for index in range(3)):
+        raise ValueError("4-ASK pilot levels must be strictly increasing")
+
+    thresholds = tuple((levels[index] + levels[index + 1]) / 2 for index in range(3))
+    marker_threshold = (levels[0] + levels[-1]) / 2
+    return Ask4Calibration(
+        levels=levels,  # type: ignore[arg-type]
+        thresholds=thresholds,  # type: ignore[arg-type]
+        contrast=levels[-1] - levels[0],
+        markers_valid=validate_markers(grid_levels, config, marker_threshold),
+    )
+
+
 def validate_markers(
     grid_levels: list[list[float]],
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
@@ -70,4 +106,3 @@ def validate_markers(
                 if actual_is_white != expected_is_white:
                     return False
     return True
-

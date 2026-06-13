@@ -10,6 +10,7 @@ import cv2
 from common.ecc import encode_reed_solomon
 from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
 from common.frame_layout import marker_origins
+from common.modulation import normalize_modulation
 from common.packet import Packet, encode_packet, packet_payload_capacity, split_payload
 from common.png_writer import write_grayscale_png
 from transmitter.generator import build_frame_grid, render_grid_to_pixels
@@ -33,6 +34,7 @@ class GeneratedSequence:
     transmitted_bytes: int
     packet_payload_capacity: int
     error_correction_bytes: int
+    modulation: str
 
 
 def generate_frame_sequence(
@@ -40,16 +42,20 @@ def generate_frame_sequence(
     output_dir: str | Path = "data/generated/sequence",
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
     error_correction_bytes: int = 0,
+    modulation: str = "ook",
 ) -> GeneratedSequence:
     """Generate a folder of packetized PNG frames."""
+    normalized = normalize_modulation(modulation)
     payload = message.encode("utf-8")
     transmitted_payload = payload
     if error_correction_bytes > 0:
         transmitted_payload = encode_reed_solomon(payload, error_correction_bytes)
 
-    chunks = split_payload(transmitted_payload, config)
+    chunks = split_payload(transmitted_payload, config, normalized)
     path = Path(output_dir)
     path.mkdir(parents=True, exist_ok=True)
+    for stale_frame in path.glob("frame_*.png"):
+        stale_frame.unlink()
     frame_paths: list[Path] = []
 
     for sequence, chunk in enumerate(chunks):
@@ -59,7 +65,11 @@ def generate_frame_sequence(
             payload=chunk,
             is_end=sequence == len(chunks) - 1,
         )
-        grid = build_frame_grid(encode_packet(packet, config), config)
+        grid = build_frame_grid(
+            encode_packet(packet, config, normalized),
+            config,
+            normalized,
+        )
         pixels = render_grid_to_pixels(grid, config)
         frame_path = path / f"frame_{sequence:04d}.png"
         write_grayscale_png(frame_path, pixels)
@@ -70,8 +80,9 @@ def generate_frame_sequence(
         frame_paths=frame_paths,
         payload_bytes=len(payload),
         transmitted_bytes=len(transmitted_payload),
-        packet_payload_capacity=packet_payload_capacity(config),
+        packet_payload_capacity=packet_payload_capacity(config, normalized),
         error_correction_bytes=error_correction_bytes,
+        modulation=normalized,
     )
 
 

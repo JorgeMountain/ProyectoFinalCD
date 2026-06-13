@@ -12,6 +12,25 @@ from transmitter.generator import generate_static_frame
 
 
 class ReedSolomonTests(unittest.TestCase):
+    def test_4ask_static_frame_round_trip_with_ecc(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            frame = Path(tmpdir) / "frame-4ask-ecc.png"
+            generate_static_frame(
+                "Hola mundo",
+                output_path=frame,
+                error_correction_bytes=16,
+                modulation="4ask",
+            )
+
+            result = decode_static_frame(
+                frame,
+                error_correction_bytes=16,
+                modulation="4ask",
+            )
+
+            self.assertEqual(result.message, "Hola mundo")
+            self.assertEqual(result.corrected_symbols, 0)
+
     def test_reed_solomon_corrects_corrupted_bytes(self):
         encoded = bytearray(encode_reed_solomon(b"Hola mundo", parity_bytes=16))
         encoded[0] ^= 0x01
@@ -60,4 +79,3 @@ def _flip_data_cell(pixels: list[list[int]], bit_index: int) -> None:
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -1,7 +1,8 @@
 import argparse
 
-from transmitter.sequence import display_frame_sequence, generate_frame_sequence
+from common.modulation import MODULATION_CHOICES
 from common.performance import plan_transmission
+from transmitter.sequence import display_frame_sequence, generate_frame_sequence
 
 
 def main() -> None:
@@ -10,6 +11,7 @@ def main() -> None:
     parser.add_argument("--message-file", help="Archivo de texto a transmitir.")
     parser.add_argument("--output-dir", default="data/generated/sequence", help="Carpeta de frames PNG.")
     parser.add_argument("--ecc", type=int, default=0, help="Bytes de paridad Reed-Solomon.")
+    parser.add_argument("--modulation", choices=MODULATION_CHOICES, default="ook", help="Esquema de modulacion visual.")
     parser.add_argument("--show", action="store_true", help="Muestra los frames en pantalla completa.")
     parser.add_argument("--windowed", action="store_true", help="Muestra los frames en una ventana en vez de pantalla completa.")
     parser.add_argument("--window-width", type=int, default=960, help="Ancho de la ventana si usas --windowed.")
@@ -29,12 +31,14 @@ def main() -> None:
         message,
         output_dir=args.output_dir,
         error_correction_bytes=args.ecc,
+        modulation=args.modulation,
     )
     plan = plan_transmission(
         message,
         error_correction_bytes=args.ecc,
         frame_duration_ms=args.duration_ms,
         repeat=args.repeat,
+        modulation=args.modulation,
     )
 
     print(f"Frames generados: {len(result.frame_paths)}")
@@ -43,6 +47,7 @@ def main() -> None:
     print(f"Bytes transmitidos: {result.transmitted_bytes}")
     print(f"Bytes utiles por frame: {result.packet_payload_capacity}")
     print(f"Bytes Reed-Solomon: {result.error_correction_bytes}")
+    print(f"Modulacion: {result.modulation}")
     print(f"Tiempo estimado al mostrar: {plan.estimated_seconds:.2f} s")
     print(f"Tasa util estimada: {plan.throughput_bps:.1f} bps")
     print(f"Muestras de camara por frame: {plan.camera_samples_per_frame:.2f}")

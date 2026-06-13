@@ -24,6 +24,16 @@ class PngReaderTests(unittest.TestCase):
 
 
 class OfflineReceiverTests(unittest.TestCase):
+    def test_decode_generated_4ask_static_frame(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "frame-4ask.png"
+            generate_static_frame("Hola mundo", output_path=output, modulation="4ask")
+
+            result = decode_static_frame(output, modulation="4ask")
+
+            self.assertEqual(result.message, "Hola mundo")
+            self.assertEqual(result.payload_bits, 80)
+
     def test_sample_grid_levels(self):
         config = FrameConfig(
             image_width=4,
@@ -55,4 +65,3 @@ class OfflineReceiverTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

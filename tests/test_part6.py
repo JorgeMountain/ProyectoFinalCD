@@ -13,6 +13,18 @@ from transmitter.generator import generate_static_frame
 
 
 class PerspectiveCorrectionTests(unittest.TestCase):
+    def test_decode_4ask_perspective_warped_photo(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            photo = _make_warped_photo(Path(tmpdir), "Hola mundo", modulation="4ask")
+
+            result = decode_photo_frame(
+                photo,
+                auto_perspective=True,
+                modulation="4ask",
+            )
+
+            self.assertEqual(result.message, "Hola mundo")
+
     def test_detect_corners_on_generated_frame(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             frame = Path(tmpdir) / "frame.png"
@@ -54,11 +66,11 @@ class PerspectiveCorrectionTests(unittest.TestCase):
             self.assertEqual(result.image.shape, (720, 1280))
 
 
-def _make_warped_photo(tmpdir: Path, message: str) -> Path:
+def _make_warped_photo(tmpdir: Path, message: str, modulation: str = "ook") -> Path:
     config = DEFAULT_FRAME_CONFIG
     frame = tmpdir / "frame.png"
     photo = tmpdir / "warped.png"
-    generate_static_frame(message, output_path=frame)
+    generate_static_frame(message, output_path=frame, modulation=modulation)
     source_image = np.array(read_grayscale_png(frame), dtype=np.uint8)
 
     canvas_width = 1500
@@ -95,4 +107,3 @@ def _make_warped_photo(tmpdir: Path, message: str) -> Path:
 
 if __name__ == "__main__":
     unittest.main()
-

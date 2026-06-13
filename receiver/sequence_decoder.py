@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import time
 
 import cv2
 import numpy as np
 from PIL import ImageGrab
+from reedsolo import ReedSolomonError
 
 from common.ecc import decode_reed_solomon
 from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
+from common.modulation import normalize_modulation
 from common.packet import Packet, decode_packet
 from common.png_reader import read_grayscale_png
 from receiver.decoder import decode_data_bits
@@ -32,44 +35,69 @@ class DecodedSequence:
     total_packets: int
     payload_bytes: int
     corrected_symbols: int
+    reception_seconds: float | None = None
+    modulation: str = "ook"
 
 
 def decode_packet_from_pixels(
     pixels: list[list[int]],
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
     threshold: float | None = None,
+    modulation: str = "ook",
 ) -> Packet:
     """Decode one rectified frame image into a packet."""
-    decoded_bits = decode_data_bits(pixels, config=config, threshold=threshold)
-    return decode_packet(decoded_bits.bits)
+    normalized = normalize_modulation(modulation)
+    decoded_bits = decode_data_bits(
+        pixels,
+        config=config,
+        threshold=threshold,
+        modulation=normalized,
+    )
+    return decode_packet(decoded_bits.bits, expected_modulation=normalized)
 
 
 def decode_packet_from_image(
     image_path: str | Path,
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
     threshold: float | None = None,
+    modulation: str = "ook",
 ) -> Packet:
     """Decode one canonical PNG packet frame."""
-    return decode_packet_from_pixels(read_grayscale_png(image_path), config=config, threshold=threshold)
+    return decode_packet_from_pixels(
+        read_grayscale_png(image_path),
+        config=config,
+        threshold=threshold,
+        modulation=modulation,
+    )
 
 
 def decode_sequence_folder(
     input_dir: str | Path,
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
     error_correction_bytes: int = 0,
+    modulation: str = "ook",
 ) -> DecodedSequence:
     """Decode all PNG frames in a folder and reconstruct the message."""
     paths = sorted(Path(input_dir).glob("*.png"))
     if not paths:
         raise ValueError(f"No PNG frames found in {input_dir}")
 
-    packets = [decode_packet_from_image(path, config=config) for path in paths]
-    return assemble_packets(packets, error_correction_bytes=error_correction_bytes)
+    normalized = normalize_modulation(modulation)
+    packets = [
+        decode_packet_from_image(path, config=config, modulation=normalized)
+        for path in paths
+    ]
+    return assemble_packets(
+        packets,
+        error_correction_bytes=error_correction_bytes,
+        modulation=normalized,
+    )
 
 
 def assemble_packets(
     packets: list[Packet],
     error_correction_bytes: int = 0,
+    modulation: str = "ook",
 ) -> DecodedSequence:
     """Assemble packets into the original message."""
     if not packets:
@@ -101,6 +129,7 @@ def assemble_packets(
         total_packets=total_packets,
         payload_bytes=len(payload),
         corrected_symbols=corrected_symbols,
+        modulation=normalize_modulation(modulation),
     )
 
 
@@ -119,8 +148,10 @@ def decode_video_stream(
     preview_window: str | None = None,
     debug_detection: bool = False,
     max_frames: int = 900,
+    modulation: str = "ook",
 ) -> DecodedSequence:
     """Capture camera frames until all packet sequences are received."""
+    normalized = normalize_modulation(modulation)
     crop_rect = parse_crop(crop)
     screen_rect = parse_crop(screen_crop)
     preview_window_rect = parse_crop(preview_window)
@@ -133,6 +164,7 @@ def decode_video_stream(
 
     packets: dict[int, Packet] = {}
     total_packets: int | None = None
+    reception_started_at: float | None = None
     status = "Apunta la camara al frame del transmisor"
     frames_checked = 0
     try:
@@ -195,7 +227,11 @@ def decode_video_stream(
                 status = "Modo directo de camara - intentando decodificar"
 
             try:
-                packet = decode_packet_from_pixels(gray.astype("uint8").tolist(), config=config)
+                packet = decode_packet_from_pixels(
+                    gray.astype("uint8").tolist(),
+                    config=config,
+                    modulation=normalized,
+                )
             except Exception:
                 status = "Frame visto, pero bits/paquete no validos"
                 if preview:
@@ -215,12 +251,34 @@ def decode_video_stream(
                         break
                 continue
 
-            packets[packet.sequence] = packet
-            total_packets = packet.total_packets
-            status = f"Paquete {packet.sequence + 1}/{packet.total_packets} recibido"
-            print(status)
-            if total_packets is not None and len(packets) == total_packets:
-                return assemble_packets(list(packets.values()), error_correction_bytes=error_correction_bytes)
+            if reception_started_at is None:
+                reception_started_at = time.perf_counter()
+                print("Transmisor detectado. Iniciando medicion de recepcion.")
+            if packets.get(packet.sequence) != packet:
+                packets[packet.sequence] = packet
+                total_packets = packet.total_packets
+                status = f"Paquete {packet.sequence + 1}/{packet.total_packets} recibido"
+                print(status)
+                if total_packets is not None and len(packets) == total_packets:
+                    try:
+                        decoded = assemble_packets(
+                            list(packets.values()),
+                            error_correction_bytes=error_correction_bytes,
+                            modulation=normalized,
+                        )
+                    except ReedSolomonError:
+                        status = "ECC no pudo corregir la secuencia. Esperando otra copia de los paquetes."
+                        print(status)
+                    else:
+                        return DecodedSequence(
+                            message=decoded.message,
+                            packets_received=decoded.packets_received,
+                            total_packets=decoded.total_packets,
+                            payload_bytes=decoded.payload_bytes,
+                            corrected_symbols=decoded.corrected_symbols,
+                            reception_seconds=time.perf_counter() - reception_started_at,
+                            modulation=normalized,
+                        )
             if preview:
                 _show_decode_preview(
                     preview_image,

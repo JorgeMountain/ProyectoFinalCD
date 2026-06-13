@@ -15,6 +15,24 @@ class MetricsTests(unittest.TestCase):
 
 
 class PerformancePlanTests(unittest.TestCase):
+    def test_4ask_halves_frame_count_for_500_character_goal(self):
+        ook_plan = plan_transmission(
+            "A" * 500,
+            error_correction_bytes=16,
+            frame_duration_ms=400,
+            modulation="ook",
+        )
+        ask4_plan = plan_transmission(
+            "A" * 500,
+            error_correction_bytes=16,
+            frame_duration_ms=400,
+            modulation="4ask",
+        )
+
+        self.assertEqual(ook_plan.frame_count, 10)
+        self.assertEqual(ask4_plan.frame_count, 5)
+        self.assertEqual(ask4_plan.payload_capacity_bytes, 123)
+
     def test_500_character_goal_with_current_settings(self):
         plan = plan_transmission("A" * 500, error_correction_bytes=16, frame_duration_ms=150)
 

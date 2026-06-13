@@ -10,10 +10,15 @@ from common.bit_utils import (
 )
 from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
 from common.modulation import (
+    ASK4_LEVELS,
+    ask4_demodulate,
+    ask4_modulate,
     bpsk_demodulate,
     bpsk_modulate,
+    bits_per_symbol,
     manchester_decode,
     manchester_encode,
+    normalize_modulation,
     ook_demodulate,
     ook_modulate,
 )
@@ -39,6 +44,25 @@ class BitUtilsTests(unittest.TestCase):
 
 
 class ModulationTests(unittest.TestCase):
+    def test_4ask_gray_mapping_round_trip(self):
+        bits = [0, 0, 0, 1, 1, 1, 1, 0]
+
+        symbols = ask4_modulate(bits)
+
+        self.assertEqual(symbols, list(ASK4_LEVELS))
+        self.assertEqual(ask4_demodulate(symbols), bits)
+
+    def test_4ask_pads_a_trailing_odd_bit(self):
+        self.assertEqual(ask4_demodulate(ask4_modulate([1])), [1, 0])
+
+    def test_modulation_metadata(self):
+        self.assertEqual(normalize_modulation("OOK"), "ook")
+        self.assertEqual(normalize_modulation("4ask"), "4ask")
+        self.assertEqual(bits_per_symbol("ook"), 1)
+        self.assertEqual(bits_per_symbol("4ask"), 2)
+        with self.assertRaises(ValueError):
+            normalize_modulation("rgb")
+
     def test_ook_round_trip(self):
         bits = text_to_bits("OK")
         symbols = ook_modulate(bits)
@@ -71,4 +95,3 @@ class FrameConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

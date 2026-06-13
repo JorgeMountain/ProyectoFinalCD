@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from common.frame_config import FrameConfig
+from common.modulation import bits_per_symbol, normalize_modulation
 
 
 Cell = tuple[int, int]
@@ -52,7 +53,24 @@ def pilot_cells(config: FrameConfig) -> list[Cell]:
 
 def pilot_cells_with_bits(config: FrameConfig) -> list[tuple[Cell, int]]:
     """Return pilot cells paired with their expected OOK bit value."""
-    return [(cell, 1 if index % 2 == 0 else 0) for index, cell in enumerate(pilot_cells(config))]
+    return [
+        (cell, 1 if symbol == 1 else 0)
+        for cell, symbol in pilot_cells_with_symbols(config, modulation="ook")
+    ]
+
+
+def pilot_cells_with_symbols(
+    config: FrameConfig,
+    modulation: str = "ook",
+) -> list[tuple[Cell, int]]:
+    """Return pilot cells paired with their expected modulation symbol."""
+    normalized = normalize_modulation(modulation)
+    if normalized == "ook":
+        return [
+            (cell, 1 if index % 2 == 0 else 0)
+            for index, cell in enumerate(pilot_cells(config))
+        ]
+    return [(cell, index % 4) for index, cell in enumerate(pilot_cells(config))]
 
 
 def data_cells(config: FrameConfig) -> list[Cell]:
@@ -68,10 +86,19 @@ def data_cells(config: FrameConfig) -> list[Cell]:
     return cells
 
 
-def require_capacity(bits: Iterable[int], config: FrameConfig) -> list[int]:
+def data_capacity_bits(config: FrameConfig, modulation: str = "ook") -> int:
+    """Return the number of transport bits available in the data cells."""
+    return len(data_cells(config)) * bits_per_symbol(modulation)
+
+
+def require_capacity(
+    bits: Iterable[int],
+    config: FrameConfig,
+    modulation: str = "ook",
+) -> list[int]:
     """Materialize bits and validate that they fit in one frame."""
     bit_list = list(bits)
-    capacity = len(data_cells(config))
+    capacity = data_capacity_bits(config, modulation)
     if len(bit_list) > capacity:
-        raise ValueError(f"Payload needs {len(bit_list)} cells but frame capacity is {capacity}")
+        raise ValueError(f"Payload needs {len(bit_list)} bits but frame capacity is {capacity}")
     return bit_list

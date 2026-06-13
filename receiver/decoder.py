@@ -9,9 +9,14 @@ from common.bit_utils import bits_to_bytes, bits_to_text, remove_length_prefix
 from common.ecc import decode_reed_solomon
 from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
 from common.frame_layout import data_cells
-from common.modulation import ook_demodulate
+from common.modulation import ask4_demodulate, normalize_modulation, ook_demodulate
 from common.png_reader import read_grayscale_png
-from receiver.calibration import OokCalibration, estimate_ook_calibration
+from receiver.calibration import (
+    Ask4Calibration,
+    OokCalibration,
+    estimate_ask4_calibration,
+    estimate_ook_calibration,
+)
 
 
 @dataclass(frozen=True)
@@ -20,7 +25,7 @@ class DecodedDataBits:
 
     bits: list[int]
     average_levels: list[float]
-    calibration: OokCalibration
+    calibration: OokCalibration | Ask4Calibration
 
 
 @dataclass(frozen=True)
@@ -31,9 +36,10 @@ class DecodedFrame:
     transmitted_bits: int
     payload_bits: int
     average_levels: list[float]
-    calibration: OokCalibration
+    calibration: OokCalibration | Ask4Calibration
     error_correction_bytes: int
     corrected_symbols: int
+    modulation: str
 
 
 def decode_static_frame(
@@ -42,6 +48,7 @@ def decode_static_frame(
     threshold: float | None = None,
     length_prefix_width: int = 16,
     error_correction_bytes: int = 0,
+    modulation: str = "ook",
 ) -> DecodedFrame:
     """Decode a PNG static frame back into text."""
     pixels = read_grayscale_png(image_path)
@@ -51,6 +58,7 @@ def decode_static_frame(
         threshold=threshold,
         length_prefix_width=length_prefix_width,
         error_correction_bytes=error_correction_bytes,
+        modulation=modulation,
     )
 
 
@@ -60,9 +68,16 @@ def decode_static_pixels(
     threshold: float | None = None,
     length_prefix_width: int = 16,
     error_correction_bytes: int = 0,
+    modulation: str = "ook",
 ) -> DecodedFrame:
     """Decode a rectified grayscale frame already loaded in memory."""
-    decoded_bits = decode_data_bits(pixels, config=config, threshold=threshold)
+    normalized = normalize_modulation(modulation)
+    decoded_bits = decode_data_bits(
+        pixels,
+        config=config,
+        threshold=threshold,
+        modulation=normalized,
+    )
     raw_bits = decoded_bits.bits
     transport_bits = remove_length_prefix(raw_bits, width=length_prefix_width)
     corrected_symbols = 0
@@ -86,6 +101,7 @@ def decode_static_pixels(
         calibration=decoded_bits.calibration,
         error_correction_bytes=error_correction_bytes,
         corrected_symbols=corrected_symbols,
+        modulation=normalized,
     )
 
 
@@ -93,16 +109,27 @@ def decode_data_bits(
     pixels: list[list[int]],
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
     threshold: float | None = None,
+    modulation: str = "ook",
 ) -> DecodedDataBits:
     """Decode all data-cell bits from a rectified frame."""
+    normalized = normalize_modulation(modulation)
     grid_levels = sample_grid_levels(pixels, config)
-    calibration = estimate_ook_calibration(grid_levels, config)
-    decision_threshold = calibration.threshold if threshold is None else threshold
+    if normalized == "ook":
+        calibration: OokCalibration | Ask4Calibration = estimate_ook_calibration(grid_levels, config)
+        decision_threshold = calibration.threshold if threshold is None else threshold
+    else:
+        if threshold is not None:
+            raise ValueError("Manual threshold is only supported for OOK modulation")
+        calibration = estimate_ask4_calibration(grid_levels, config)
     if not calibration.markers_valid:
         raise ValueError("Frame finder markers do not match the expected pattern")
 
     data_levels = [grid_levels[row][col] for row, col in data_cells(config)]
-    raw_bits = ook_demodulate(data_levels, threshold=decision_threshold)
+    raw_bits = (
+        ook_demodulate(data_levels, threshold=decision_threshold)
+        if normalized == "ook"
+        else ask4_demodulate(data_levels, reference_levels=calibration.levels)
+    )
     return DecodedDataBits(bits=raw_bits, average_levels=data_levels, calibration=calibration)
 
 
@@ -115,17 +142,25 @@ def sample_grid_levels(pixels: list[list[int]], config: FrameConfig) -> list[lis
         row_levels: list[float] = []
         pixel_row_start = grid_row * config.cell_height
         pixel_row_end = pixel_row_start + config.cell_height
+        row_margin = int(config.cell_height * 0.2)
+        if config.cell_height - 2 * row_margin >= 2:
+            pixel_row_start += row_margin
+            pixel_row_end -= row_margin
 
         for grid_col in range(config.grid_cols):
             pixel_col_start = grid_col * config.cell_width
             pixel_col_end = pixel_col_start + config.cell_width
+            col_margin = int(config.cell_width * 0.2)
+            if config.cell_width - 2 * col_margin >= 2:
+                pixel_col_start += col_margin
+                pixel_col_end -= col_margin
             total = 0
             count = 0
 
             for pixel_row in range(pixel_row_start, pixel_row_end):
                 row = pixels[pixel_row]
                 total += sum(row[pixel_col_start:pixel_col_end])
-                count += config.cell_width
+                count += pixel_col_end - pixel_col_start
 
             row_levels.append(total / count)
         grid.append(row_levels)

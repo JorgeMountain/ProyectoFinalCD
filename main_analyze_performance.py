@@ -1,6 +1,7 @@
 import argparse
 
 from common.metrics import text_bit_error_rate
+from common.modulation import MODULATION_CHOICES
 from common.performance import longest_message_bytes_for_goal, plan_transmission
 
 
@@ -14,6 +15,7 @@ def main() -> None:
     parser.add_argument("--camera-fps", type=float, default=30.0, help="FPS esperado de camara.")
     parser.add_argument("--target-seconds", type=float, default=10.0, help="Meta de tiempo.")
     parser.add_argument("--received", help="Mensaje recibido para calcular BER.")
+    parser.add_argument("--modulation", choices=MODULATION_CHOICES, default="ook", help="Esquema de modulacion visual.")
     args = parser.parse_args()
 
     message = args.message
@@ -28,6 +30,7 @@ def main() -> None:
         repeat=args.repeat,
         camera_fps=args.camera_fps,
         target_seconds=args.target_seconds,
+        modulation=args.modulation,
     )
 
     print(f"Bytes del mensaje: {plan.message_bytes}")
@@ -39,7 +42,11 @@ def main() -> None:
     print(f"Muestras de camara por frame: {plan.camera_samples_per_frame:.2f}")
     print(f"Cumple meta de tiempo: {plan.meets_time_goal}")
     print(f"Cumple margen de muestreo: {plan.meets_sampling_goal}")
-    print(f"Bytes maximos sin ECC en {args.target_seconds:.1f}s: {longest_message_bytes_for_goal()}")
+    print(f"Modulacion: {args.modulation}")
+    print(
+        f"Bytes maximos sin ECC en {args.target_seconds:.1f}s: "
+        f"{longest_message_bytes_for_goal(target_seconds=args.target_seconds, modulation=args.modulation)}"
+    )
 
     if args.received is not None:
         print(f"BER vs recibido: {text_bit_error_rate(message, args.received):.6g}")
@@ -47,4 +54,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

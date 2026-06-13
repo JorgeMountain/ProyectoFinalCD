@@ -216,3 +216,37 @@ python main_rx_sequence_offline.py --input-dir data/generated/sequence --ecc 16 
 
 Con la configuracion actual, un mensaje de 500 bytes con `--ecc 16` requiere 10 frames. A 150 ms por frame,
 la transmision estimada dura 1.50 s por repeticion completa; dos repeticiones duran 3.00 s.
+
+## Modulacion seleccionable: OOK y 4-ASK
+
+El sistema soporta dos esquemas independientes:
+
+- `--modulation ook`: un bit por celda, modo predeterminado y compatible con los comandos anteriores.
+- `--modulation 4ask`: dos bits por celda usando cuatro niveles de gris con mapeo Gray.
+
+El transmisor y el receptor deben usar la misma modulacion. Con la grilla predeterminada,
+OOK transporta 56 bytes utiles por frame y 4-ASK transporta 123 bytes utiles por frame.
+Un mensaje de 500 caracteres con `--ecc 16` requiere 10 frames OOK o 5 frames 4-ASK.
+
+Prueba offline 4-ASK:
+
+```bash
+python main_tx_sequence.py --message-file mensaje_500.txt --modulation 4ask --ecc 16
+python main_rx_sequence_offline.py --input-dir data/generated/sequence --modulation 4ask --ecc 16 --expected-file mensaje_500.txt
+```
+
+Prueba con la camara del celular:
+
+```bash
+python main_rx_video_sequence.py --camera 2 --backend dshow --modulation 4ask --ecc 16 --preview --preview-window "980,20,900,500" --max-frames 0
+```
+
+En otra consola:
+
+```bash
+python main_tx_sequence.py --message-file mensaje_500.txt --modulation 4ask --ecc 16 --show --windowed --window-width 900 --window-height 506 --window-x 20 --window-y 100 --duration-ms 400 --repeat 10
+```
+
+El receptor 4-ASK estima automaticamente los cuatro niveles reales usando pilotos conocidos.
+La salida muestra los paquetes recibidos, los simbolos corregidos y el tiempo desde el primer
+paquete valido.

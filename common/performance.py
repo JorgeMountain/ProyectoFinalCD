@@ -36,6 +36,7 @@ def plan_transmission(
     camera_fps: float = 30.0,
     target_seconds: float = 10.0,
     min_camera_samples_per_frame: float = 3.0,
+    modulation: str = "ook",
 ) -> TransmissionPlan:
     """Estimate frame count, duration, throughput, and sampling margin."""
     if frame_duration_ms <= 0:
@@ -50,7 +51,7 @@ def plan_transmission(
     if error_correction_bytes > 0:
         transmitted_payload = encode_reed_solomon(payload, error_correction_bytes)
 
-    capacity = packet_payload_capacity(config)
+    capacity = packet_payload_capacity(config, modulation)
     frame_count = max(1, math.ceil(len(transmitted_payload) / capacity))
     estimated_seconds = frame_count * repeat * frame_duration_ms / 1000.0
     throughput_bps = (len(payload) * 8 / estimated_seconds) if estimated_seconds > 0 else 0.0
@@ -76,10 +77,11 @@ def longest_message_bytes_for_goal(
     frame_duration_ms: int = 150,
     repeat: int = 1,
     target_seconds: float = 10.0,
+    modulation: str = "ook",
 ) -> int:
     """Estimate maximum raw message bytes that fit in the time goal without ECC overhead."""
     if frame_duration_ms <= 0 or repeat <= 0:
         raise ValueError("frame_duration_ms and repeat must be positive")
     available_frames = math.floor(target_seconds * 1000 / (frame_duration_ms * repeat))
-    return max(0, available_frames * packet_payload_capacity(config))
+    return max(0, available_frames * packet_payload_capacity(config, modulation))
 

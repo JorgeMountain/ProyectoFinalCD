@@ -1,8 +1,8 @@
 import argparse
-import time
 
 import cv2
 
+from common.modulation import MODULATION_CHOICES
 from receiver.sequence_decoder import decode_video_stream
 
 
@@ -15,6 +15,7 @@ def main() -> None:
     parser.add_argument("--scan-cameras", action="store_true", help="Prueba indices de camara y muestra una vista previa.")
     parser.add_argument("--scan-max", type=int, default=6, help="Indice maximo para --scan-cameras.")
     parser.add_argument("--ecc", type=int, default=0, help="Bytes de paridad Reed-Solomon usados.")
+    parser.add_argument("--modulation", choices=MODULATION_CHOICES, default="ook", help="Esquema de modulacion visual.")
     parser.add_argument("--crop", help="Recorte opcional x,y,width,height antes de perspectiva.")
     parser.add_argument("--no-auto-perspective", action="store_true", help="Desactiva correccion automatica.")
     parser.add_argument("--legacy-markers", action="store_true", help="Permite detectar marcadores antiguos blanco/negro.")
@@ -29,7 +30,6 @@ def main() -> None:
         scan_cameras(args.scan_max, args.backend)
         return
 
-    started_at = time.perf_counter()
     try:
         result = decode_video_stream(
             camera_index=args.camera,
@@ -45,6 +45,7 @@ def main() -> None:
             preview_window=args.preview_window,
             debug_detection=args.debug_detection,
             max_frames=args.max_frames,
+            modulation=args.modulation,
         )
     except TimeoutError:
         if args.preview_only:
@@ -52,13 +53,13 @@ def main() -> None:
             return
         print("No se recibieron todos los paquetes. Revisa que el transmisor este visible y que aparezca el rectangulo de deteccion.")
         return
-    elapsed = time.perf_counter() - started_at
 
     print(f"Mensaje decodificado: {result.message}")
     print(f"Paquetes recibidos: {result.packets_received}/{result.total_packets}")
     print(f"Bytes del mensaje: {result.payload_bytes}")
     print(f"Simbolos corregidos: {result.corrected_symbols}")
-    print(f"Tiempo de recepcion: {elapsed:.2f} s")
+    print(f"Modulacion: {result.modulation}")
+    print(f"Tiempo de recepcion desde deteccion: {result.reception_seconds:.2f} s")
 
 
 def scan_cameras(max_index: int, backend: str) -> None:

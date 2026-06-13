@@ -12,6 +12,15 @@ from transmitter.generator import generate_static_frame
 
 
 class PhotoDecoderTests(unittest.TestCase):
+    def test_decode_generated_4ask_png_through_photo_loader(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            frame = Path(tmpdir) / "frame-4ask.png"
+            generate_static_frame("Hola mundo", output_path=frame, modulation="4ask")
+
+            result = decode_photo_frame(frame, modulation="4ask")
+
+            self.assertEqual(result.message, "Hola mundo")
+
     def test_parse_crop(self):
         self.assertEqual(parse_crop("10,20,300,200"), (10, 20, 300, 200))
         self.assertIsNone(parse_crop(None))
@@ -59,4 +68,3 @@ class PhotoDecoderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

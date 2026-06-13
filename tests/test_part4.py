@@ -6,7 +6,7 @@ from common.frame_config import DEFAULT_FRAME_CONFIG
 from common.frame_layout import pilot_cells_with_bits
 from common.png_reader import read_grayscale_png
 from common.png_writer import write_grayscale_png
-from receiver.calibration import estimate_ook_calibration, validate_markers
+from receiver.calibration import Ask4Calibration, estimate_ook_calibration, validate_markers
 from receiver.decoder import decode_static_frame, sample_grid_levels
 from transmitter.generator import generate_static_frame
 
@@ -19,6 +19,22 @@ def _apply_linear_levels(pixels: list[list[int]], dark_offset: int, scale: float
 
 
 class PilotCalibrationTests(unittest.TestCase):
+    def test_decode_4ask_with_brightness_shift_uses_adaptive_levels(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = Path(tmpdir) / "original-4ask.png"
+            shifted = Path(tmpdir) / "shifted-4ask.png"
+            generate_static_frame("Hola mundo", output_path=original, modulation="4ask")
+
+            pixels = read_grayscale_png(original)
+            write_grayscale_png(shifted, _apply_linear_levels(pixels, dark_offset=25, scale=0.75))
+
+            result = decode_static_frame(shifted, modulation="4ask")
+
+            self.assertEqual(result.message, "Hola mundo")
+            self.assertIsInstance(result.calibration, Ask4Calibration)
+            self.assertTrue(result.calibration.markers_valid)
+            self.assertEqual(len(result.calibration.levels), 4)
+
     def test_pilots_include_black_and_white_references(self):
         expected_bits = [bit for _, bit in pilot_cells_with_bits(DEFAULT_FRAME_CONFIG)]
 
@@ -57,4 +73,3 @@ class PilotCalibrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

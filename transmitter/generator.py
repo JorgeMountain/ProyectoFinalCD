@@ -9,13 +9,14 @@ from common.bit_utils import add_length_prefix, bytes_to_bits
 from common.ecc import encode_reed_solomon
 from common.frame_config import DEFAULT_FRAME_CONFIG, FrameConfig
 from common.frame_layout import (
+    data_capacity_bits,
     data_cells,
     marker_cells,
     marker_origins,
-    pilot_cells_with_bits,
+    pilot_cells_with_symbols,
     require_capacity,
 )
-from common.modulation import ook_modulate
+from common.modulation import ASK4_LEVELS, ask4_modulate, normalize_modulation, ook_modulate
 from common.png_writer import write_grayscale_png
 
 
@@ -32,6 +33,7 @@ class GeneratedFrame:
     transmitted_bits: int
     data_capacity_bits: int
     error_correction_bytes: int
+    modulation: str
 
 
 def message_to_frame_bits(
@@ -46,14 +48,19 @@ def message_to_frame_bits(
     return add_length_prefix(bytes_to_bits(payload), width=length_prefix_width)
 
 
-def build_frame_grid(bits: list[int], config: FrameConfig = DEFAULT_FRAME_CONFIG) -> list[list[int]]:
+def build_frame_grid(
+    bits: list[int],
+    config: FrameConfig = DEFAULT_FRAME_CONFIG,
+    modulation: str = "ook",
+) -> list[list[int]]:
     """Build a grid of grayscale levels for one visual frame."""
-    checked_bits = require_capacity(bits, config)
+    normalized = normalize_modulation(modulation)
+    checked_bits = require_capacity(bits, config, normalized)
     grid = [[BACKGROUND_LEVEL for _ in range(config.grid_cols)] for _ in range(config.grid_rows)]
 
     _place_markers(grid, config)
-    _place_pilots(grid, config)
-    _place_data(grid, checked_bits, config)
+    _place_pilots(grid, config, normalized)
+    _place_data(grid, checked_bits, config, normalized)
 
     return grid
 
@@ -75,10 +82,12 @@ def generate_static_frame(
     output_path: str | Path = "data/generated/frame_test.png",
     config: FrameConfig = DEFAULT_FRAME_CONFIG,
     error_correction_bytes: int = 0,
+    modulation: str = "ook",
 ) -> GeneratedFrame:
     """Generate and save one PNG frame containing the message."""
+    normalized = normalize_modulation(modulation)
     frame_bits = message_to_frame_bits(message, error_correction_bytes=error_correction_bytes)
-    grid = build_frame_grid(frame_bits, config)
+    grid = build_frame_grid(frame_bits, config, normalized)
     pixels = render_grid_to_pixels(grid, config)
     path = Path(output_path)
     write_grayscale_png(path, pixels)
@@ -87,8 +96,9 @@ def generate_static_frame(
         output_path=path,
         payload_bits=len(message.encode("utf-8")) * 8,
         transmitted_bits=len(frame_bits),
-        data_capacity_bits=len(data_cells(config)),
+        data_capacity_bits=data_capacity_bits(config, normalized),
         error_correction_bytes=error_correction_bytes,
+        modulation=normalized,
     )
 
 
@@ -104,17 +114,26 @@ def _place_markers(grid: list[list[int]], config: FrameConfig) -> None:
                 grid[row][col] = 0 if is_center else 255
 
 
-def _place_pilots(grid: list[list[int]], config: FrameConfig) -> None:
-    for (row, col), expected_bit in pilot_cells_with_bits(config):
-        grid[row][col] = 255 if expected_bit == 1 else 0
+def _place_pilots(grid: list[list[int]], config: FrameConfig, modulation: str) -> None:
+    for (row, col), symbol in pilot_cells_with_symbols(config, modulation):
+        if modulation == "ook":
+            grid[row][col] = 255 if symbol == 1 else 0
+        else:
+            grid[row][col] = ASK4_LEVELS[symbol]
 
 
-def _place_data(grid: list[list[int]], bits: list[int], config: FrameConfig) -> None:
-    symbols = ook_modulate(bits)
+def _place_data(
+    grid: list[list[int]],
+    bits: list[int],
+    config: FrameConfig,
+    modulation: str,
+) -> None:
+    symbols = ook_modulate(bits) if modulation == "ook" else ask4_modulate(bits)
     cells = data_cells(config)
+    unused_level = UNUSED_DATA_LEVEL if modulation == "ook" else ASK4_LEVELS[0]
 
     for index, (row, col) in enumerate(cells):
-        grid[row][col] = symbols[index] if index < len(symbols) else UNUSED_DATA_LEVEL
+        grid[row][col] = symbols[index] if index < len(symbols) else unused_level
 
 
 def used_reserved_cells(config: FrameConfig = DEFAULT_FRAME_CONFIG) -> set[tuple[int, int]]:
