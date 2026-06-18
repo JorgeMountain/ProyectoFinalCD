@@ -2,6 +2,7 @@ import argparse
 
 import cv2
 
+from common.metrics import bit_error_count, bit_error_rate
 from common.modulation import MODULATION_CHOICES
 from receiver.sequence_decoder import decode_video_stream
 
@@ -16,6 +17,8 @@ def main() -> None:
     parser.add_argument("--scan-max", type=int, default=6, help="Indice maximo para --scan-cameras.")
     parser.add_argument("--ecc", type=int, default=0, help="Bytes de paridad Reed-Solomon usados.")
     parser.add_argument("--modulation", choices=MODULATION_CHOICES, default="ook", help="Esquema de modulacion visual.")
+    parser.add_argument("--expected-message", help="Mensaje original esperado para calcular BER.")
+    parser.add_argument("--expected-message-file", help="Archivo con el mensaje original esperado para calcular BER.")
     parser.add_argument("--crop", help="Recorte opcional x,y,width,height antes de perspectiva.")
     parser.add_argument("--no-auto-perspective", action="store_true", help="Desactiva correccion automatica.")
     parser.add_argument("--legacy-markers", action="store_true", help="Permite detectar marcadores antiguos blanco/negro.")
@@ -24,11 +27,18 @@ def main() -> None:
     parser.add_argument("--preview-window", help="Posicion/tamano de la ventana preview x,y,width,height.")
     parser.add_argument("--debug-detection", action="store_true", help="Muestra mascara y candidatos de deteccion de esquinas.")
     parser.add_argument("--max-frames", type=int, default=900, help="Limite de frames de camara a intentar. Usa 0 para esperar sin limite.")
+    parser.add_argument(
+        "--best-effort-after-seconds",
+        type=float,
+        help="Si ya estan todos los paquetes y ECC falla, entrega el mejor mensaje disponible tras estos segundos.",
+    )
     args = parser.parse_args()
 
     if args.scan_cameras:
         scan_cameras(args.scan_max, args.backend)
         return
+
+    expected_message = _load_expected_message(args.expected_message, args.expected_message_file)
 
     try:
         result = decode_video_stream(
@@ -46,6 +56,7 @@ def main() -> None:
             debug_detection=args.debug_detection,
             max_frames=args.max_frames,
             modulation=args.modulation,
+            best_effort_after_seconds=args.best_effort_after_seconds,
         )
     except TimeoutError:
         if args.preview_only:
@@ -59,7 +70,29 @@ def main() -> None:
     print(f"Bytes del mensaje: {result.payload_bytes}")
     print(f"Simbolos corregidos: {result.corrected_symbols}")
     print(f"Modulacion: {result.modulation}")
+    if result.best_effort:
+        print("Advertencia: mensaje entregado en modo mejor esfuerzo; puede contener errores.")
+    if expected_message is not None:
+        bit_errors, ber = _error_metrics(expected_message, result.message)
+        print(f"Errores de bit: {bit_errors}")
+        print(f"Tasa de error (BER): {ber:.6g}")
     print(f"Tiempo de recepcion desde deteccion: {result.reception_seconds:.2f} s")
+
+
+def _load_expected_message(expected_message: str | None, expected_message_file: str | None) -> str | None:
+    if expected_message_file:
+        with open(expected_message_file, "r", encoding="utf-8") as file:
+            return file.read()
+    return expected_message
+
+
+def _error_metrics(expected_message: str, received_message: str) -> tuple[int, float]:
+    expected_bytes = expected_message.encode("utf-8")
+    received_bytes = received_message.encode("utf-8")
+    return (
+        bit_error_count(expected_bytes, received_bytes),
+        bit_error_rate(expected_bytes, received_bytes),
+    )
 
 
 def scan_cameras(max_index: int, backend: str) -> None:

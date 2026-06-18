@@ -81,6 +81,10 @@ def decode_packet(
     payload_length = int.from_bytes(header[6:8], "big")
     flags = header[8]
     encoded_modulation = modulation_from_id(header[9])
+    if total_packets < 1:
+        raise ValueError("Packet total count must be positive")
+    if sequence >= total_packets:
+        raise ValueError("Packet sequence must be lower than total count")
     if encoded_modulation != normalized:
         raise ValueError(
             f"Packet modulation is {encoded_modulation}, expected {normalized}"

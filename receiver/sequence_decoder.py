@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
+from itertools import product
 from pathlib import Path
 import time
 
@@ -37,6 +39,7 @@ class DecodedSequence:
     corrected_symbols: int
     reception_seconds: float | None = None
     modulation: str = "ook"
+    best_effort: bool = False
 
 
 def decode_packet_from_pixels(
@@ -149,6 +152,7 @@ def decode_video_stream(
     debug_detection: bool = False,
     max_frames: int = 900,
     modulation: str = "ook",
+    best_effort_after_seconds: float | None = None,
 ) -> DecodedSequence:
     """Capture camera frames until all packet sequences are received."""
     normalized = normalize_modulation(modulation)
@@ -162,9 +166,11 @@ def decode_video_stream(
         source_name = source_url or (f"pantalla {screen_crop}" if screen_crop else f"camara {camera_index}")
         raise RuntimeError(f"No se pudo abrir la fuente de video: {source_name}")
 
+    packet_votes: dict[int, Counter[Packet]] = {}
     packets: dict[int, Packet] = {}
     total_packets: int | None = None
     reception_started_at: float | None = None
+    assembly_failed = False
     status = "Apunta la camara al frame del transmisor"
     frames_checked = 0
     try:
@@ -173,6 +179,20 @@ def decode_video_stream(
             ok, frame = capture.read()
             if not ok:
                 continue
+            if (
+                assembly_failed
+                and total_packets is not None
+                and len(packets) == total_packets
+                and _should_return_best_effort(reception_started_at, best_effort_after_seconds)
+            ):
+                print("Tiempo limite alcanzado. Entregando mensaje en modo mejor esfuerzo.")
+                return _assemble_best_effort(
+                    packet_votes,
+                    total_packets,
+                    error_correction_bytes=error_correction_bytes,
+                    modulation=normalized,
+                    reception_seconds=time.perf_counter() - reception_started_at,
+                )
 
             preview_color = frame
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -254,31 +274,65 @@ def decode_video_stream(
             if reception_started_at is None:
                 reception_started_at = time.perf_counter()
                 print("Transmisor detectado. Iniciando medicion de recepcion.")
-            if packets.get(packet.sequence) != packet:
-                packets[packet.sequence] = packet
-                total_packets = packet.total_packets
-                status = f"Paquete {packet.sequence + 1}/{packet.total_packets} recibido"
+            if packet.total_packets <= 0 or packet.sequence >= packet.total_packets:
+                status = "Paquete con numero de secuencia invalido. Esperando otra copia."
                 print(status)
-                if total_packets is not None and len(packets) == total_packets:
-                    try:
-                        decoded = assemble_packets(
-                            list(packets.values()),
+                continue
+            if total_packets is not None and packet.total_packets != total_packets:
+                status = "Paquete de otra secuencia detectado. Esperando la transmision actual."
+                print(status)
+                continue
+            votes = packet_votes.setdefault(packet.sequence, Counter())
+            votes[packet] += 1
+            best_packet, best_votes = votes.most_common(1)[0]
+            packets[packet.sequence] = best_packet
+            total_packets = packet.total_packets
+            status = f"Paquete {packet.sequence + 1}/{packet.total_packets} recibido (votos {best_votes})"
+            print(status)
+            if total_packets is not None and len(packets) == total_packets:
+                try:
+                    decoded = _assemble_packet_candidates(
+                        packet_votes,
+                        total_packets,
+                        error_correction_bytes=error_correction_bytes,
+                        modulation=normalized,
+                    )
+                except ValueError as error:
+                    assembly_failed = True
+                    status = f"Secuencia incompleta o inconsistente: {error}. Esperando otra copia."
+                    print(status)
+                    if _should_return_best_effort(reception_started_at, best_effort_after_seconds):
+                        print("Tiempo limite alcanzado. Entregando mensaje en modo mejor esfuerzo.")
+                        return _assemble_best_effort(
+                            packet_votes,
+                            total_packets,
                             error_correction_bytes=error_correction_bytes,
                             modulation=normalized,
-                        )
-                    except ReedSolomonError:
-                        status = "ECC no pudo corregir la secuencia. Esperando otra copia de los paquetes."
-                        print(status)
-                    else:
-                        return DecodedSequence(
-                            message=decoded.message,
-                            packets_received=decoded.packets_received,
-                            total_packets=decoded.total_packets,
-                            payload_bytes=decoded.payload_bytes,
-                            corrected_symbols=decoded.corrected_symbols,
                             reception_seconds=time.perf_counter() - reception_started_at,
-                            modulation=normalized,
                         )
+                except ReedSolomonError:
+                    assembly_failed = True
+                    status = "ECC no pudo corregir la secuencia. Esperando otra copia de los paquetes."
+                    print(status)
+                    if _should_return_best_effort(reception_started_at, best_effort_after_seconds):
+                        print("Tiempo limite alcanzado. Entregando mensaje en modo mejor esfuerzo.")
+                        return _assemble_best_effort(
+                            packet_votes,
+                            total_packets,
+                            error_correction_bytes=error_correction_bytes,
+                            modulation=normalized,
+                            reception_seconds=time.perf_counter() - reception_started_at,
+                        )
+                else:
+                    return DecodedSequence(
+                        message=decoded.message,
+                        packets_received=decoded.packets_received,
+                        total_packets=decoded.total_packets,
+                        payload_bytes=decoded.payload_bytes,
+                        corrected_symbols=decoded.corrected_symbols,
+                        reception_seconds=time.perf_counter() - reception_started_at,
+                        modulation=normalized,
+                    )
             if preview:
                 _show_decode_preview(
                     preview_image,
@@ -299,7 +353,132 @@ def decode_video_stream(
         if preview or preview_only:
             cv2.destroyAllWindows()
 
+    if (
+        assembly_failed
+        and total_packets is not None
+        and len(packets) == total_packets
+        and _should_return_best_effort(reception_started_at, best_effort_after_seconds)
+    ):
+        return _assemble_best_effort(
+            packet_votes,
+            total_packets,
+            error_correction_bytes=error_correction_bytes,
+            modulation=normalized,
+            reception_seconds=time.perf_counter() - reception_started_at,
+        )
+
     raise TimeoutError(f"No se recibieron todos los paquetes. Recibidos: {sorted(packets)}")
+
+
+def _should_return_best_effort(
+    reception_started_at: float | None,
+    best_effort_after_seconds: float | None,
+) -> bool:
+    if reception_started_at is None or best_effort_after_seconds is None:
+        return False
+    return best_effort_after_seconds > 0 and (time.perf_counter() - reception_started_at) >= best_effort_after_seconds
+
+
+def _assemble_best_effort(
+    packet_votes: dict[int, Counter[Packet]],
+    total_packets: int,
+    error_correction_bytes: int,
+    modulation: str,
+    reception_seconds: float,
+) -> DecodedSequence:
+    packets = [
+        _majority_packet(sequence, packet_votes[sequence])
+        for sequence in range(total_packets)
+    ]
+    transmitted_payload = b"".join(packet.payload for packet in packets)
+    if error_correction_bytes > 0 and len(transmitted_payload) > error_correction_bytes:
+        payload = transmitted_payload[:-error_correction_bytes]
+    else:
+        payload = transmitted_payload
+    return DecodedSequence(
+        message=payload.decode("utf-8", errors="replace"),
+        packets_received=len(packets),
+        total_packets=total_packets,
+        payload_bytes=len(payload),
+        corrected_symbols=0,
+        reception_seconds=reception_seconds,
+        modulation=modulation,
+        best_effort=True,
+    )
+
+
+def _assemble_packet_candidates(
+    packet_votes: dict[int, Counter[Packet]],
+    total_packets: int,
+    error_correction_bytes: int,
+    modulation: str,
+    max_candidates_per_sequence: int = 3,
+) -> DecodedSequence:
+    missing = [sequence for sequence in range(total_packets) if sequence not in packet_votes]
+    if missing:
+        raise ValueError(f"Missing packet sequences: {missing}")
+
+    candidate_lists = [
+        _packet_candidates_for_sequence(
+            sequence,
+            packet_votes[sequence],
+            max_candidates=max_candidates_per_sequence,
+        )
+        for sequence in range(total_packets)
+    ]
+    last_error: Exception | None = None
+    for candidate_packets in product(*candidate_lists):
+        try:
+            return assemble_packets(
+                list(candidate_packets),
+                error_correction_bytes=error_correction_bytes,
+                modulation=modulation,
+            )
+        except (ReedSolomonError, ValueError) as error:
+            last_error = error
+
+    if last_error is not None:
+        raise last_error
+    raise ValueError("No packet candidates available")
+
+
+def _packet_candidates_for_sequence(
+    sequence: int,
+    votes: Counter[Packet],
+    max_candidates: int,
+) -> list[Packet]:
+    candidates = [packet for packet, _count in votes.most_common(max_candidates)]
+    majority_packet = _majority_packet(sequence, votes)
+    if majority_packet not in candidates:
+        candidates.insert(0, majority_packet)
+    return candidates
+
+
+def _majority_packet(sequence: int, votes: Counter[Packet]) -> Packet:
+    total_packets = votes.most_common(1)[0][0].total_packets
+    is_end = votes.most_common(1)[0][0].is_end
+    length_votes: Counter[int] = Counter()
+    for packet, count in votes.items():
+        length_votes[len(packet.payload)] += count
+    payload_length = length_votes.most_common(1)[0][0]
+    packets = [
+        (packet, count)
+        for packet, count in votes.items()
+        if len(packet.payload) == payload_length
+    ]
+    payload_bytes = []
+    for index in range(payload_length):
+        byte_votes: Counter[int] = Counter()
+        for packet, count in packets:
+            byte_votes[packet.payload[index]] += count
+        payload_bytes.append(byte_votes.most_common(1)[0][0])
+    payload = bytes(payload_bytes)
+    return Packet(
+        sequence=sequence,
+        total_packets=total_packets,
+        payload=payload,
+        is_end=is_end,
+    )
 
 
 def _open_capture(

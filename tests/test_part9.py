@@ -2,6 +2,7 @@ import unittest
 
 from common.metrics import bit_error_count, bit_error_rate, text_bit_error_rate
 from common.performance import longest_message_bytes_for_goal, plan_transmission
+from main_rx_video_sequence import _error_metrics
 
 
 class MetricsTests(unittest.TestCase):
@@ -12,6 +13,12 @@ class MetricsTests(unittest.TestCase):
     def test_bit_error_rate(self):
         self.assertEqual(bit_error_rate(b"\x00", b"\x01"), 1 / 8)
         self.assertEqual(text_bit_error_rate("Hola", "Hola"), 0.0)
+
+    def test_receiver_error_metrics_for_matching_message(self):
+        errors, ber = _error_metrics("Mensaje correcto", "Mensaje correcto")
+
+        self.assertEqual(errors, 0)
+        self.assertEqual(ber, 0.0)
 
 
 class PerformancePlanTests(unittest.TestCase):
