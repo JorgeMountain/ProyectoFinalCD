@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from itertools import product
+from itertools import combinations, product
+import ctypes
 from pathlib import Path
 import time
 
@@ -26,6 +27,10 @@ from receiver.perspective import (
     rectify_frame_image_from_corners,
 )
 from receiver.photo_decoder import parse_crop
+
+
+_ASSEMBLY_RETRY_FRAMES = 12
+_MAX_PACKET_COMBINATION_ATTEMPTS = 96
 
 
 @dataclass(frozen=True)
@@ -158,7 +163,7 @@ def decode_video_stream(
     normalized = normalize_modulation(modulation)
     crop_rect = parse_crop(crop)
     screen_rect = parse_crop(screen_crop)
-    preview_window_rect = parse_crop(preview_window)
+    preview_window_rect = parse_crop(preview_window) or _default_preview_window_rect()
     processed_window_rect = _below_window(preview_window_rect)
     debug_window_rect = _below_window(processed_window_rect or preview_window_rect)
     capture = _open_capture(camera_index, camera_backend, source_url, screen_rect)
@@ -171,11 +176,15 @@ def decode_video_stream(
     total_packets: int | None = None
     reception_started_at: float | None = None
     assembly_failed = False
+    assembly_retry_frames = 0
+    last_failed_candidate_signature = None
     status = "Apunta la camara al frame del transmisor"
     frames_checked = 0
     try:
         while max_frames <= 0 or frames_checked < max_frames:
             frames_checked += 1
+            if assembly_retry_frames > 0:
+                assembly_retry_frames -= 1
             ok, frame = capture.read()
             if not ok:
                 continue
@@ -290,49 +299,61 @@ def decode_video_stream(
             status = f"Paquete {packet.sequence + 1}/{packet.total_packets} recibido (votos {best_votes})"
             print(status)
             if total_packets is not None and len(packets) == total_packets:
-                try:
-                    decoded = _assemble_packet_candidates(
-                        packet_votes,
-                        total_packets,
-                        error_correction_bytes=error_correction_bytes,
-                        modulation=normalized,
-                    )
-                except ValueError as error:
-                    assembly_failed = True
-                    status = f"Secuencia incompleta o inconsistente: {error}. Esperando otra copia."
-                    print(status)
-                    if _should_return_best_effort(reception_started_at, best_effort_after_seconds):
-                        print("Tiempo limite alcanzado. Entregando mensaje en modo mejor esfuerzo.")
-                        return _assemble_best_effort(
-                            packet_votes,
-                            total_packets,
-                            error_correction_bytes=error_correction_bytes,
-                            modulation=normalized,
-                            reception_seconds=time.perf_counter() - reception_started_at,
-                        )
-                except ReedSolomonError:
-                    assembly_failed = True
-                    status = "ECC no pudo corregir la secuencia. Esperando otra copia de los paquetes."
-                    print(status)
-                    if _should_return_best_effort(reception_started_at, best_effort_after_seconds):
-                        print("Tiempo limite alcanzado. Entregando mensaje en modo mejor esfuerzo.")
-                        return _assemble_best_effort(
-                            packet_votes,
-                            total_packets,
-                            error_correction_bytes=error_correction_bytes,
-                            modulation=normalized,
-                            reception_seconds=time.perf_counter() - reception_started_at,
-                        )
+                candidate_signature = _packet_candidate_signature(packet_votes, total_packets)
+                should_try_assembly = (
+                    assembly_retry_frames <= 0
+                    or candidate_signature != last_failed_candidate_signature
+                )
+                if not should_try_assembly:
+                    status = "ECC no pudo corregir la secuencia. Esperando copias distintas."
                 else:
-                    return DecodedSequence(
-                        message=decoded.message,
-                        packets_received=decoded.packets_received,
-                        total_packets=decoded.total_packets,
-                        payload_bytes=decoded.payload_bytes,
-                        corrected_symbols=decoded.corrected_symbols,
-                        reception_seconds=time.perf_counter() - reception_started_at,
-                        modulation=normalized,
-                    )
+                    last_failed_candidate_signature = candidate_signature
+                    assembly_retry_frames = 0
+                    try:
+                        decoded = _assemble_packet_candidates(
+                            packet_votes,
+                            total_packets,
+                            error_correction_bytes=error_correction_bytes,
+                            modulation=normalized,
+                        )
+                    except ValueError as error:
+                        assembly_failed = True
+                        assembly_retry_frames = _ASSEMBLY_RETRY_FRAMES
+                        status = f"Secuencia incompleta o inconsistente: {error}. Esperando otra copia."
+                        print(status)
+                        if _should_return_best_effort(reception_started_at, best_effort_after_seconds):
+                            print("Tiempo limite alcanzado. Entregando mensaje en modo mejor esfuerzo.")
+                            return _assemble_best_effort(
+                                packet_votes,
+                                total_packets,
+                                error_correction_bytes=error_correction_bytes,
+                                modulation=normalized,
+                                reception_seconds=time.perf_counter() - reception_started_at,
+                            )
+                    except ReedSolomonError:
+                        assembly_failed = True
+                        assembly_retry_frames = _ASSEMBLY_RETRY_FRAMES
+                        status = "ECC no pudo corregir la secuencia. Esperando otra copia de los paquetes."
+                        print(status)
+                        if _should_return_best_effort(reception_started_at, best_effort_after_seconds):
+                            print("Tiempo limite alcanzado. Entregando mensaje en modo mejor esfuerzo.")
+                            return _assemble_best_effort(
+                                packet_votes,
+                                total_packets,
+                                error_correction_bytes=error_correction_bytes,
+                                modulation=normalized,
+                                reception_seconds=time.perf_counter() - reception_started_at,
+                            )
+                    else:
+                        return DecodedSequence(
+                            message=decoded.message,
+                            packets_received=decoded.packets_received,
+                            total_packets=decoded.total_packets,
+                            payload_bytes=decoded.payload_bytes,
+                            corrected_symbols=decoded.corrected_symbols,
+                            reception_seconds=time.perf_counter() - reception_started_at,
+                            modulation=normalized,
+                        )
             if preview:
                 _show_decode_preview(
                     preview_image,
@@ -413,6 +434,7 @@ def _assemble_packet_candidates(
     error_correction_bytes: int,
     modulation: str,
     max_candidates_per_sequence: int = 3,
+    max_attempts: int = _MAX_PACKET_COMBINATION_ATTEMPTS,
 ) -> DecodedSequence:
     missing = [sequence for sequence in range(total_packets) if sequence not in packet_votes]
     if missing:
@@ -427,7 +449,7 @@ def _assemble_packet_candidates(
         for sequence in range(total_packets)
     ]
     last_error: Exception | None = None
-    for candidate_packets in product(*candidate_lists):
+    for candidate_packets in _bounded_candidate_combinations(candidate_lists, max_attempts):
         try:
             return assemble_packets(
                 list(candidate_packets),
@@ -440,6 +462,47 @@ def _assemble_packet_candidates(
     if last_error is not None:
         raise last_error
     raise ValueError("No packet candidates available")
+
+
+def _bounded_candidate_combinations(
+    candidate_lists: list[list[Packet]],
+    max_attempts: int,
+):
+    if max_attempts <= 0 or not candidate_lists:
+        return
+
+    primary = [candidates[0] for candidates in candidate_lists]
+    yielded = 1
+    yield tuple(primary)
+
+    sequence_indexes = range(len(candidate_lists))
+    for replacement_count in range(1, len(candidate_lists) + 1):
+        for changed_sequences in combinations(sequence_indexes, replacement_count):
+            replacement_options = [
+                range(1, len(candidate_lists[sequence]))
+                for sequence in changed_sequences
+            ]
+            if any(len(options) == 0 for options in replacement_options):
+                continue
+            for replacement_indexes in product(*replacement_options):
+                combination = list(primary)
+                for sequence, replacement_index in zip(changed_sequences, replacement_indexes):
+                    combination[sequence] = candidate_lists[sequence][replacement_index]
+                yielded += 1
+                yield tuple(combination)
+                if yielded >= max_attempts:
+                    return
+
+
+def _packet_candidate_signature(
+    packet_votes: dict[int, Counter[Packet]],
+    total_packets: int,
+    max_candidates_per_sequence: int = 3,
+):
+    return tuple(
+        tuple(packet for packet, _count in packet_votes[sequence].most_common(max_candidates_per_sequence))
+        for sequence in range(total_packets)
+    )
 
 
 def _packet_candidates_for_sequence(
@@ -520,6 +583,8 @@ class _ScreenCapture:
 
 
 _CONFIGURED_WINDOWS: set[str] = set()
+_DEFAULT_PREVIEW_SIZE = (520, 292)
+_WINDOW_GAP = 40
 
 
 def _show_window(name: str, image, window_rect=None) -> None:
@@ -560,6 +625,23 @@ def _below_window(window_rect):
         return None
     x, y, width, height = window_rect
     return x, y + height + 40, width, height
+
+
+def _default_preview_window_rect() -> tuple[int, int, int, int]:
+    width, height = _DEFAULT_PREVIEW_SIZE
+    screen_width, screen_height = _screen_size()
+    x = max(0, (screen_width - width) // 2)
+    y = max(20, (screen_height - (height * 2 + _WINDOW_GAP)) // 2)
+    return x, y, width, height
+
+
+def _screen_size() -> tuple[int, int]:
+    try:
+        user32 = ctypes.windll.user32
+        user32.SetProcessDPIAware()
+        return user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+    except Exception:
+        return 1366, 768
 
 
 def _with_status(image, status: str):

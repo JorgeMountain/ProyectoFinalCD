@@ -8,6 +8,7 @@ import numpy as np
 
 from common.ecc import encode_reed_solomon
 from common.packet import Packet, decode_packet, encode_packet, packet_payload_capacity, split_payload
+from receiver import sequence_decoder as sequence_decoder_module
 from receiver.sequence_decoder import assemble_packets, decode_sequence_folder, decode_video_stream
 from transmitter.sequence import generate_frame_sequence
 
@@ -162,6 +163,38 @@ class MultiFrameSequenceTests(unittest.TestCase):
 
         self.assertEqual(decoded.message, "Hola mundo")
         self.assertEqual(decoded.reception_seconds, 2.5)
+
+    def test_packet_candidate_retry_is_bounded(self):
+        total_packets = 13
+        packet_votes = {}
+        for sequence in range(total_packets):
+            votes = packet_votes[sequence] = {}
+            for variant in range(3):
+                votes[
+                    Packet(
+                        sequence=sequence,
+                        total_packets=total_packets,
+                        payload=bytes([sequence, variant]),
+                        is_end=sequence == total_packets - 1,
+                    )
+                ] = 1
+            packet_votes[sequence] = sequence_decoder_module.Counter(votes)
+
+        with patch(
+            "receiver.sequence_decoder.assemble_packets",
+            side_effect=sequence_decoder_module.ReedSolomonError("bad sequence"),
+        ) as assemble_mock:
+            with self.assertRaises(sequence_decoder_module.ReedSolomonError):
+                sequence_decoder_module._assemble_packet_candidates(
+                    packet_votes,
+                    total_packets,
+                    error_correction_bytes=16,
+                    modulation="ook",
+                    max_candidates_per_sequence=3,
+                    max_attempts=20,
+                )
+
+        self.assertEqual(assemble_mock.call_count, 20)
 
     def test_video_reception_time_starts_with_first_valid_packet(self):
         class FakeCapture:

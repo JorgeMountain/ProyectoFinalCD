@@ -4,7 +4,7 @@ import cv2
 
 from common.metrics import bit_error_count, bit_error_rate
 from common.modulation import MODULATION_CHOICES
-from receiver.sequence_decoder import decode_video_stream
+from receiver.sequence_decoder import _default_preview_window_rect, decode_video_stream
 
 
 def main() -> None:
@@ -112,9 +112,14 @@ def scan_cameras(max_index: int, backend: str) -> None:
 
         print(f"Camara {index}: OK {frame.shape[1]}x{frame.shape[0]}")
         cv2.putText(frame, f"Camara {index} - backend {backend}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
-        cv2.imshow(f"Camara {index}", frame)
+        window_name = f"Camara {index}"
+        x, y, width, height = _default_preview_window_rect()
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(window_name, width, height)
+        cv2.moveWindow(window_name, x, y)
+        cv2.imshow(window_name, frame)
         cv2.waitKey(0)
-        cv2.destroyWindow(f"Camara {index}")
+        cv2.destroyWindow(window_name)
 
 
 def _backend_id(backend: str) -> int | None:
