@@ -3,6 +3,10 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 data/generated/
 data/captures/
 .superpowers/

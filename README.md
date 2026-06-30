@@ -1,252 +1,115 @@
-# Proyecto Final Comunicaciones Digitales
+# Screen-Camera Optical Modem
 
-Implementacion por partes de un modem optico pantalla-camara en Python.
+Python implementation of an optical modem that transmits text from a screen to a camera using visual frames. The project covers the complete path from bit packing and frame generation to camera capture, perspective correction, Reed-Solomon error correction, multi-frame packet reconstruction, BER measurement, and selectable OOK / 4-ASK modulation.
 
-## Parte 1
+This was built as a Digital Communications final project, but the repository is organized as a portfolio project: the first screen explains what it does, how it works, how to run it, and where to inspect the technical decisions.
 
-La base actual incluye:
+## Highlights
 
-- Conversion texto -> bits -> texto.
-- Prefijo de longitud para saber donde termina el mensaje.
-- Configuracion inicial de grilla visual.
-- Modulacion OOK, BPSK y codificacion Manchester.
+- Screen-to-camera communication using generated PNG frames.
+- OOK modulation for robustness and 4-ASK modulation for higher data density.
+- Gray-coded 4-ASK levels with pilot-based calibration.
+- Reed-Solomon error correction over transmitted payload bytes.
+- Multi-frame packet protocol with sequence numbers and payload length.
+- Automatic screen detection and perspective correction for real camera input.
+- Offline and live-camera receivers.
+- BER and throughput analysis tools.
+- Unit tests covering the staged transmitter, receiver, ECC, packet, and modulation behavior.
 
-## Verificacion
+## Current Capability
 
-```bash
-python -m unittest discover -s tests
-python main_part1.py
-```
+With the default 1280 x 720 frame and 32 x 18 grid:
 
-## Parte 2
+| Modulation | Bits per cell | Useful payload per frame | 500-byte message with ECC 16 |
+| --- | ---: | ---: | ---: |
+| OOK | 1 | 56 bytes | 10 frames |
+| 4-ASK | 2 | 123 bytes | 5 frames |
 
-El transmisor estatico genera una imagen PNG con una grilla visual codificada en OOK.
+4-ASK improves throughput by encoding two bits per data cell, while OOK remains the simpler and more robust fallback for noisy capture conditions.
 
-```bash
-python main_tx_static.py
-```
-
-Salida generada:
-
-```text
-data/generated/frame_test.png
-```
-
-La imagen generada se ignora en Git porque es un artefacto reproducible.
-
-## Parte 3
-
-El receptor offline lee el PNG generado, promedia cada celda de la grilla,
-demodula OOK y reconstruye el texto original.
-
-```bash
-python main_tx_static.py
-python main_rx_offline.py
-```
-
-Salida esperada:
+## Repository Structure
 
 ```text
-Mensaje decodificado: Hola mundo
+common/        Shared protocol, ECC, modulation, metrics, frame layout, PNG I/O
+transmitter/   Frame and sequence generation
+receiver/      Offline, photo, perspective, and live video decoding
+tests/         Unit tests for the staged implementation
+docs/          Commands, code map, theory notes, defense guide, design notes
+data/          Runtime data folder; generated captures and frames are ignored
 ```
 
-## Parte 4
+## Quick Start
 
-El frame ahora tiene referencias explicitas para operar con fotos reales mas adelante:
-
-- Marcadores en las cuatro esquinas para validar orientacion y preparar la deteccion de pantalla.
-- Pilotos alternados blanco/negro para estimar el umbral de decision.
-- Receptor offline con umbral adaptativo basado en pilotos.
-
-Esto permite decodificar correctamente aunque la imagen tenga cambios simples de brillo y contraste.
-
-## Parte 5
-
-Flujo con foto real de la pantalla:
-
-1. Generar el frame.
-
-```bash
-python main_tx_static.py
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python -m pytest tests
 ```
 
-2. Mostrarlo en pantalla completa.
+Generate and decode a 4-ASK sequence offline:
 
-```bash
-python main_display_frame.py
+```powershell
+python main_tx_sequence.py --message "Hola mundo" --ecc 16 --modulation 4ask
+python main_rx_sequence_offline.py --input-dir data/generated/sequence --ecc 16 --modulation 4ask --expected "Hola mundo"
 ```
 
-3. Capturar una foto con la webcam del receptor.
+Analyze estimated performance for a 500-byte message:
 
-```bash
-python main_capture_photo.py --output data/captures/capture.jpg
+```powershell
+python main_analyze_performance.py --ecc 16 --modulation 4ask --duration-ms 150
 ```
 
-4. Decodificar la foto.
+## Live Camera Demo
 
-```bash
-python main_rx_photo.py data/captures/capture.jpg
+Find the camera index:
+
+```powershell
+python main_rx_video_sequence.py --scan-cameras --scan-max 6 --backend dshow
 ```
 
-Si la pantalla ocupa solo una parte de la foto, usar recorte manual:
+Start the receiver:
 
-```bash
-python main_rx_photo.py data/captures/capture.jpg --crop x,y,width,height
+```powershell
+python main_rx_video_sequence.py --camera 2 --backend dshow --ecc 16 --modulation 4ask --preview --max-frames 0 --expected-message "Hola mundo"
 ```
 
-Ejemplo:
+In a second terminal, show the transmitter:
 
-```bash
-python main_rx_photo.py data/captures/capture.jpg --crop 120,80,900,520
+```powershell
+python main_tx_sequence.py --message "Hola mundo" --ecc 16 --modulation 4ask --show --duration-ms 500 --repeat 20
 ```
 
-En esta parte el recorte todavia es manual. La deteccion automatica de pantalla y correccion de perspectiva quedan para la Parte 6.
+Both sides must use the same `--ecc` and `--modulation` values.
 
-## Parte 6
+## Main Scripts
 
-El receptor puede detectar automaticamente los marcadores de esquina, estimar la homografia y rectificar
-la foto antes de decodificar.
+| Script | Purpose |
+| --- | --- |
+| `main_tx_static.py` | Generate one static visual frame. |
+| `main_rx_offline.py` | Decode one generated frame without camera input. |
+| `main_rx_photo.py` | Decode a real photo of the transmitted frame. |
+| `main_tx_sequence.py` | Generate and optionally display a multi-frame transmission. |
+| `main_rx_sequence_offline.py` | Decode a folder of generated sequence frames. |
+| `main_rx_video_sequence.py` | Receive and decode live video from a camera. |
+| `main_analyze_performance.py` | Estimate frames, time, throughput, and BER. |
 
-Decodificar con correccion automatica de perspectiva:
+## Documentation
 
-```bash
-python main_rx_photo.py data/captures/capture.jpg --auto-perspective
+- [Command cookbook](docs/commands_es.md)
+- [Code map and modification guide](docs/code_map_es.md)
+- [Defense guide](docs/defense_guide_es.md)
+- [Theory guide](docs/theory_guide_es.md)
+- [Implementation decision record](docs/decision_record_es.pdf)
+- [4-ASK design notes](docs/design/ook_4ask_design.md)
+- [4-ASK implementation plan](docs/design/ook_4ask_implementation_plan.md)
+
+## Verification
+
+The project is validated with:
+
+```powershell
+python -m pytest tests
 ```
 
-Guardar una imagen rectificada para inspeccion visual:
-
-```bash
-python main_rectify_photo.py data/captures/capture.jpg --output data/captures/rectified.png
-```
-
-Si la foto tiene mucho fondo, se puede combinar un recorte aproximado con la deteccion automatica:
-
-```bash
-python main_rx_photo.py data/captures/capture.jpg --crop 80,40,1100,700 --auto-perspective
-```
-
-## Parte 7
-
-El transmisor y receptor soportan correccion de errores Reed-Solomon sobre los bytes del mensaje.
-Se activa indicando cuantos bytes de paridad se agregan. Con `--ecc 16`, el sistema puede corregir
-hasta 8 bytes danados dentro del payload codificado del frame.
-
-Generar y decodificar un frame con correccion de errores:
-
-```bash
-python main_tx_static.py --ecc 16
-python main_rx_offline.py --ecc 16
-```
-
-Para foto real:
-
-```bash
-python main_rx_photo.py data/captures/capture.jpg --auto-perspective --ecc 16
-```
-
-El valor de `--ecc` debe ser el mismo en transmisor y receptor.
-
-## Parte 8
-
-El sistema soporta mensajes multi-frame. El mensaje se divide en paquetes con:
-
-- Identificador de protocolo.
-- Numero de secuencia.
-- Total de paquetes.
-- Longitud del payload del frame.
-- Delimitador de fin.
-
-Generar una secuencia de frames:
-
-```bash
-python main_tx_sequence.py --message "Hola mundo largo" --output-dir data/generated/sequence --ecc 16
-```
-
-Decodificar la secuencia generada:
-
-```bash
-python main_rx_sequence_offline.py --input-dir data/generated/sequence --ecc 16
-```
-
-Mostrar la transmision en pantalla completa:
-
-```bash
-python main_tx_sequence.py --message-file mensaje.txt --ecc 16 --show --duration-ms 150 --repeat 2
-```
-
-Recibir desde webcam:
-
-```bash
-python main_rx_video_sequence.py --camera 0 --ecc 16
-```
-
-Si la pantalla no ocupa bien la imagen, se puede ayudar con un recorte aproximado:
-
-```bash
-python main_rx_video_sequence.py --camera 0 --ecc 16 --crop 80,40,1100,700
-```
-
-## Parte 9
-
-Herramientas de optimizacion y medicion:
-
-- Estimacion de frames necesarios.
-- Tiempo total esperado.
-- Tasa util estimada.
-- Muestras de camara esperadas por frame.
-- BER entre mensaje esperado y recibido.
-
-Analizar la configuracion objetivo de 500 caracteres:
-
-```bash
-python main_analyze_performance.py --message-file mensaje.txt --ecc 16 --duration-ms 150 --repeat 1
-```
-
-Tambien se puede probar directamente con 500 caracteres:
-
-```bash
-python main_analyze_performance.py --message "AAAAAAAAAA..." --ecc 16
-```
-
-Para medir BER al decodificar una secuencia offline:
-
-```bash
-python main_rx_sequence_offline.py --input-dir data/generated/sequence --ecc 16 --expected-file mensaje.txt
-```
-
-Con la configuracion actual, un mensaje de 500 bytes con `--ecc 16` requiere 10 frames. A 150 ms por frame,
-la transmision estimada dura 1.50 s por repeticion completa; dos repeticiones duran 3.00 s.
-
-## Modulacion seleccionable: OOK y 4-ASK
-
-El sistema soporta dos esquemas independientes:
-
-- `--modulation ook`: un bit por celda, modo predeterminado y compatible con los comandos anteriores.
-- `--modulation 4ask`: dos bits por celda usando cuatro niveles de gris con mapeo Gray.
-
-El transmisor y el receptor deben usar la misma modulacion. Con la grilla predeterminada,
-OOK transporta 56 bytes utiles por frame y 4-ASK transporta 123 bytes utiles por frame.
-Un mensaje de 500 caracteres con `--ecc 16` requiere 10 frames OOK o 5 frames 4-ASK.
-
-Prueba offline 4-ASK:
-
-```bash
-python main_tx_sequence.py --message-file mensaje_500.txt --modulation 4ask --ecc 16
-python main_rx_sequence_offline.py --input-dir data/generated/sequence --modulation 4ask --ecc 16 --expected-file mensaje_500.txt
-```
-
-Prueba con la camara del celular:
-
-```bash
-python main_rx_video_sequence.py --camera 2 --backend dshow --modulation 4ask --ecc 16 --preview --preview-window "980,20,900,500" --max-frames 0
-```
-
-En otra consola:
-
-```bash
-python main_tx_sequence.py --message-file mensaje_500.txt --modulation 4ask --ecc 16 --show --windowed --window-width 900 --window-height 506 --window-x 20 --window-y 100 --duration-ms 400 --repeat 10
-```
-
-El receptor 4-ASK estima automaticamente los cuatro niveles reales usando pilotos conocidos.
-La salida muestra los paquetes recibidos, los simbolos corregidos y el tiempo desde el primer
-paquete valido.
+A successful run verifies the transmitter/receiver pipeline, packet reconstruction, ECC flow, BER helpers, and selectable OOK / 4-ASK modulation paths.
